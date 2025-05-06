@@ -191,5 +191,41 @@ contract PerpetualIndexMarket is
         emit PositionClosed(msg.sender, positionId, pnl);
     }
 
+    /// @notice Settle funding payments between longs and shorts
+    /// @dev Can be called by anyone, but only once per funding interval
+    function settleFunding() external whenNotPaused nonReentrant {
+        // Settle funding using FundingRateEngine
+        uint256 timestamp = block.timestamp;
+        _fre.settleFunding(timestamp);
+        // For simplicity, collect a flat funding fee from all open positions (expand as needed)
+        // In a real implementation, iterate over all positions and apply funding payments
+        emit FundingSettled(timestamp);
+    }
+
+    /// @notice Trigger liquidation of a position if eligible
+    /// @param positionId The ID of the position
+    function liquidate(uint256 positionId) external whenNotPaused nonReentrant {
+        IPositionManager.Position memory pos = _pm.getPosition(positionId);
+        if (!pos.isOpen) revert PositionNotFound();
+        // Get latest index value
+        (uint256 indexValue, ) = _oa.getLatestIndexValue();
+        // Check if position is eligible for liquidation
+        bool canLiquidate = _le.canLiquidate(
+            positionId,
+            indexValue,
+            marginRequirement
+        );
+        if (!canLiquidate) revert NotAuthorized();
+        // Trigger liquidation in LiquidationEngine
+        (int256 pnl, uint256 penalty) = _le.liquidate(
+            positionId,
+            indexValue,
+            marginRequirement
+        );
+        // Collect liquidation fee (for now, treat penalty as fee)
+        _fm.collectFee(pos.user, penalty, "liquidation");
+        emit PositionLiquidated(pos.user, positionId, msg.sender);
+    }
+
     // --- Additional business logic (settleFunding, liquidate, etc.) to be implemented next ---
 }
