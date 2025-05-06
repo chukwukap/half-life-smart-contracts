@@ -102,6 +102,10 @@ contract PerpetualIndexMarket is
     /// @notice Mapping to track user margin balances for deposit/withdraw
     mapping(address => uint256) public userMarginBalances;
 
+    /// @dev Constants
+    uint256 private constant BASIS_POINTS_DENOMINATOR = 10_000;
+    uint256 private constant FUNDING_RATE_SCALE = 1e18;
+
     /// @notice Modifier to restrict to only the oracle adapter
     modifier onlyOracle() {
         if (msg.sender != oracleAdapter) revert NotAuthorized();
@@ -174,23 +178,25 @@ contract PerpetualIndexMarket is
     }
 
     /// @notice Open a new position (long or short)
+    /// @dev Transfers margin, collects fee, and opens position in PositionManager
     /// @param isLong True for long, false for short
     /// @param amount The position size (in index units)
     /// @param leverage The leverage to use
-    /// @param margin The margin to deposit (in marginToken)
+    /// @param marginAmount The margin to deposit (in marginToken)
+    /// @return positionId The ID of the new position
     function openPosition(
         bool isLong,
         uint256 amount,
         uint256 leverage,
-        uint256 margin
+        uint256 marginAmount
     ) external whenNotPaused nonReentrant returns (uint256 positionId) {
         if (amount == 0 || leverage == 0) revert InvalidInput();
-        if (margin < marginRequirement) revert InsufficientMargin();
+        if (marginAmount < marginRequirement) revert InsufficientMargin();
         // Transfer margin from user to contract
-        marginToken.safeTransferFrom(msg.sender, address(this), margin);
+        marginToken.safeTransferFrom(msg.sender, address(this), marginAmount);
         // Calculate trading fee and collect
         uint256 tradingFee = _fm.calculateTradingFee(amount);
-        if (margin <= tradingFee) revert InsufficientMargin();
+        if (marginAmount <= tradingFee) revert InsufficientMargin();
         marginToken.safeApprove(address(_fm), tradingFee);
         _fm.collectFee(msg.sender, tradingFee, "trading");
         // Get latest index value
@@ -202,7 +208,7 @@ contract PerpetualIndexMarket is
             amount,
             leverage,
             indexValue,
-            margin - tradingFee
+            marginAmount - tradingFee
         );
         emit PositionOpened(msg.sender, positionId, isLong, amount, leverage);
     }
@@ -255,6 +261,7 @@ contract PerpetualIndexMarket is
     }
 
     /// @notice Withdraw margin from the contract (if tracked)
+    /// @dev Prevents withdrawal if it would undercollateralize any open position
     /// @param amount The amount to withdraw
     function withdrawMargin(
         uint256 amount
@@ -264,14 +271,12 @@ contract PerpetualIndexMarket is
             userMarginBalances[msg.sender] >= amount,
             "Insufficient margin balance"
         );
-        // Prevent withdrawal if it would undercollateralize any open position
         uint256[] memory userOpenIds = _pm.getUserOpenPositionIds(msg.sender);
         (uint256 indexValue, ) = _oa.getLatestIndexValue();
         for (uint256 i = 0; i < userOpenIds.length; i++) {
             IPositionManager.Position memory pos = _pm.getPosition(
                 userOpenIds[i]
             );
-            // Calculate unrealized PnL
             int256 direction = pos.isLong ? int256(1) : int256(-1);
             int256 pnl = direction *
                 int256(indexValue) -
@@ -279,7 +284,6 @@ contract PerpetualIndexMarket is
                 int256(pos.entryIndexValue);
             pnl = pnl * int256(pos.amount) * int256(pos.leverage);
             int256 marginAfterPnL = int256(pos.margin) + pnl;
-            // If withdrawal would drop margin below maintenance, block
             if (marginAfterPnL < int256(marginRequirement)) {
                 emit WithdrawalBlocked(
                     msg.sender,
@@ -298,33 +302,24 @@ contract PerpetualIndexMarket is
     /// @dev Iterates over all open positions and applies funding payments
     function settleFunding() external override whenNotPaused nonReentrant {
         uint256 timestamp = block.timestamp;
-        // Get all open positions from PositionManager
         uint256[] memory openIds = _pm.getAllOpenPositionIds();
         (uint256 marketPrice, ) = _oa.getLatestIndexValue();
-        // For each open position, calculate and apply funding payment
         for (uint256 i = 0; i < openIds.length; i++) {
             IPositionManager.Position memory pos = _pm.getPosition(openIds[i]);
-            // Funding rate: positive means longs pay shorts, negative means shorts pay longs
             int256 fundingRate = _fre.calculateFundingRate(
                 marketPrice,
                 pos.entryIndexValue
             );
-            // Funding payment = position size * leverage * fundingRate / 1e18
             int256 payment = (int256(pos.amount) *
                 int256(pos.leverage) *
-                fundingRate) / 1e18;
-            // Update margin in PositionManager (subtract for payer, add for receiver)
+                fundingRate) / int256(FUNDING_RATE_SCALE);
             uint256 newMargin;
             if (payment < 0) {
-                // Shorts pay, so margin increases for this long
                 newMargin = pos.margin + uint256(-payment);
             } else {
-                // Longs pay, so margin decreases for this long
-                if (uint256(payment) >= pos.margin) {
-                    newMargin = 0;
-                } else {
-                    newMargin = pos.margin - uint256(payment);
-                }
+                newMargin = (uint256(payment) >= pos.margin)
+                    ? 0
+                    : pos.margin - uint256(payment);
             }
             _pm.updateMargin(openIds[i], newMargin);
             emit FundingPaymentApplied(
