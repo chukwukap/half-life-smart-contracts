@@ -51,6 +51,11 @@ contract PositionManager is
     /// @notice Only the market contract can call restricted functions
     address public market;
 
+    /// @notice Array of all open position IDs
+    uint256[] private openPositionIds;
+    /// @notice Mapping from user to their open position IDs
+    mapping(address => uint256[]) private userOpenPositions;
+
     modifier onlyMarket() {
         if (msg.sender != market) revert NotAuthorized();
         _;
@@ -88,6 +93,8 @@ contract PositionManager is
             margin: margin,
             isOpen: true
         });
+        openPositionIds.push(positionId);
+        userOpenPositions[user].push(positionId);
         emit PositionOpened(
             user,
             positionId,
@@ -107,6 +114,9 @@ contract PositionManager is
         Position storage pos = positions[positionId];
         if (!pos.isOpen) revert PositionClosedError();
         pos.isOpen = false;
+        // Remove from openPositionIds and userOpenPositions
+        _removeOpenPositionId(positionId);
+        _removeUserOpenPosition(pos.user, positionId);
         // Calculate P&L: (Current Index Value - Entry Index Value) * Position Size * Direction
         // Direction: 1 for long, -1 for short
         int256 direction = pos.isLong ? int256(1) : int256(-1);
@@ -155,5 +165,45 @@ contract PositionManager is
         // Margin after P&L
         int256 marginAfterPnL = int256(pos.margin) + pnl;
         canLiquidate_ = marginAfterPnL < int256(maintenanceMargin);
+    }
+
+    /// @notice Returns all open position IDs
+    function getAllOpenPositionIds() external view returns (uint256[] memory) {
+        return openPositionIds;
+    }
+
+    /// @notice Returns all open position IDs for a user
+    function getUserOpenPositionIds(
+        address user
+    ) external view returns (uint256[] memory) {
+        return userOpenPositions[user];
+    }
+
+    /// @dev Internal: remove a positionId from openPositionIds
+    function _removeOpenPositionId(uint256 positionId) internal {
+        uint256 len = openPositionIds.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (openPositionIds[i] == positionId) {
+                openPositionIds[i] = openPositionIds[len - 1];
+                openPositionIds.pop();
+                break;
+            }
+        }
+    }
+
+    /// @dev Internal: remove a positionId from userOpenPositions
+    function _removeUserOpenPosition(
+        address user,
+        uint256 positionId
+    ) internal {
+        uint256[] storage arr = userOpenPositions[user];
+        uint256 len = arr.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (arr[i] == positionId) {
+                arr[i] = arr[len - 1];
+                arr.pop();
+                break;
+            }
+        }
     }
 }

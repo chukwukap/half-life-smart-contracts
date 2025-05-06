@@ -53,6 +53,19 @@ contract PerpetualIndexMarket is
     event MarginDeposited(address indexed user, uint256 amount);
     /// @notice Emitted when a user withdraws margin
     event MarginWithdrawn(address indexed user, uint256 amount);
+    /// @notice Emitted when funding payment is applied to a position
+    event FundingPaymentApplied(
+        uint256 indexed positionId,
+        address indexed user,
+        int256 fundingPayment,
+        uint256 newMargin
+    );
+    /// @notice Emitted when a margin withdrawal is blocked due to open positions
+    event WithdrawalBlocked(
+        address indexed user,
+        uint256 requested,
+        string reason
+    );
 
     /// @dev Custom errors for gas efficiency
     error NotAuthorized();
@@ -251,19 +264,77 @@ contract PerpetualIndexMarket is
             userMarginBalances[msg.sender] >= amount,
             "Insufficient margin balance"
         );
-        // Optionally, add compliance check here (e.g., if (complianceModule != address(0)) require(ICompliance(complianceModule).canWithdraw(msg.sender, amount), "Not compliant"))
+        // Prevent withdrawal if it would undercollateralize any open position
+        uint256[] memory userOpenIds = _pm.getUserOpenPositionIds(msg.sender);
+        (uint256 indexValue, ) = _oa.getLatestIndexValue();
+        for (uint256 i = 0; i < userOpenIds.length; i++) {
+            IPositionManager.Position memory pos = _pm.getPosition(
+                userOpenIds[i]
+            );
+            // Calculate unrealized PnL
+            int256 direction = pos.isLong ? int256(1) : int256(-1);
+            int256 pnl = direction *
+                int256(indexValue) -
+                direction *
+                int256(pos.entryIndexValue);
+            pnl = pnl * int256(pos.amount) * int256(pos.leverage);
+            int256 marginAfterPnL = int256(pos.margin) + pnl;
+            // If withdrawal would drop margin below maintenance, block
+            if (marginAfterPnL < int256(marginRequirement)) {
+                emit WithdrawalBlocked(
+                    msg.sender,
+                    amount,
+                    "Open position would be undercollateralized"
+                );
+                revert("Withdrawal would undercollateralize open position");
+            }
+        }
         userMarginBalances[msg.sender] -= amount;
         marginToken.safeTransfer(msg.sender, amount);
         emit MarginWithdrawn(msg.sender, amount);
     }
 
     /// @notice Settle funding payments between longs and shorts
-    /// @dev Can be called by anyone, but only once per funding interval
+    /// @dev Iterates over all open positions and applies funding payments
     function settleFunding() external override whenNotPaused nonReentrant {
-        // Settle funding using FundingRateEngine
         uint256 timestamp = block.timestamp;
+        // Get all open positions from PositionManager
+        uint256[] memory openIds = _pm.getAllOpenPositionIds();
+        (uint256 marketPrice, ) = _oa.getLatestIndexValue();
+        // For each open position, calculate and apply funding payment
+        for (uint256 i = 0; i < openIds.length; i++) {
+            IPositionManager.Position memory pos = _pm.getPosition(openIds[i]);
+            // Funding rate: positive means longs pay shorts, negative means shorts pay longs
+            int256 fundingRate = _fre.calculateFundingRate(
+                marketPrice,
+                pos.entryIndexValue
+            );
+            // Funding payment = position size * leverage * fundingRate / 1e18
+            int256 payment = (int256(pos.amount) *
+                int256(pos.leverage) *
+                fundingRate) / 1e18;
+            // Update margin in PositionManager (subtract for payer, add for receiver)
+            uint256 newMargin;
+            if (payment < 0) {
+                // Shorts pay, so margin increases for this long
+                newMargin = pos.margin + uint256(-payment);
+            } else {
+                // Longs pay, so margin decreases for this long
+                if (uint256(payment) >= pos.margin) {
+                    newMargin = 0;
+                } else {
+                    newMargin = pos.margin - uint256(payment);
+                }
+            }
+            _pm.updateMargin(openIds[i], newMargin);
+            emit FundingPaymentApplied(
+                openIds[i],
+                pos.user,
+                payment,
+                newMargin
+            );
+        }
         _fre.settleFunding(timestamp);
-        // TODO: In production, iterate over all positions and apply funding payments
         emit FundingSettled(timestamp);
     }
 
