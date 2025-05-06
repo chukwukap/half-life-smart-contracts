@@ -5,10 +5,15 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import {IPositionManager} from "./interfaces/IPositionManager.sol";
+import {IFundingRateEngine} from "./interfaces/IFundingRateEngine.sol";
+import {IOracleAdapter} from "./interfaces/IOracleAdapter.sol";
+import {ILiquidationEngine} from "./interfaces/ILiquidationEngine.sol";
+import {IFeeManager} from "./interfaces/IFeeManager.sol";
 
 /// @title PerpetualIndexMarket
 /// @notice Main contract for Half-Life perpetual index betting market
-/// @dev Upgradeable, Ownable, Pausable, ReentrancyGuard. All business logic to be implemented in future iterations.
+/// @dev Integrates all modules and implements business logic for perpetual trading
 contract PerpetualIndexMarket is
     Initializable,
     OwnableUpgradeable,
@@ -47,18 +52,20 @@ contract PerpetualIndexMarket is
     error InsufficientMargin();
     error NotCompliant();
 
-    /// @notice Address of the PositionManager contract
+    /// @notice Module contract addresses
     address public positionManager;
-    /// @notice Address of the FundingRateEngine contract
     address public fundingRateEngine;
-    /// @notice Address of the OracleAdapter contract
     address public oracleAdapter;
-    /// @notice Address of the LiquidationEngine contract
     address public liquidationEngine;
-    /// @notice Address of the FeeManager contract
     address public feeManager;
-    /// @notice Address of the ComplianceModule contract (optional)
-    address public complianceModule;
+    // address public complianceModule; // Omitted for now
+
+    /// @notice Module interfaces
+    IPositionManager private _pm;
+    IFundingRateEngine private _fre;
+    IOracleAdapter private _oa;
+    ILiquidationEngine private _le;
+    IFeeManager private _fm;
 
     /// @notice Market parameters (example, to be expanded)
     uint256 public marginRequirement;
@@ -78,20 +85,12 @@ contract PerpetualIndexMarket is
         _;
     }
 
-    /// @notice Modifier to restrict to only the compliance module (if set)
-    modifier onlyCompliance() {
-        if (complianceModule != address(0) && msg.sender != complianceModule)
-            revert NotAuthorized();
-        _;
-    }
-
     /// @notice Initializer for upgradeable contract
     /// @param _positionManager Address of PositionManager
     /// @param _fundingRateEngine Address of FundingRateEngine
     /// @param _oracleAdapter Address of OracleAdapter
     /// @param _liquidationEngine Address of LiquidationEngine
     /// @param _feeManager Address of FeeManager
-    /// @param _complianceModule Address of ComplianceModule (optional)
     /// @param _marginRequirement Initial margin requirement
     /// @param _fundingInterval Funding interval in seconds
     function initialize(
@@ -100,7 +99,6 @@ contract PerpetualIndexMarket is
         address _oracleAdapter,
         address _liquidationEngine,
         address _feeManager,
-        address _complianceModule,
         uint256 _marginRequirement,
         uint256 _fundingInterval
     ) external initializer {
@@ -112,9 +110,13 @@ contract PerpetualIndexMarket is
         oracleAdapter = _oracleAdapter;
         liquidationEngine = _liquidationEngine;
         feeManager = _feeManager;
-        complianceModule = _complianceModule;
         marginRequirement = _marginRequirement;
         fundingInterval = _fundingInterval;
+        _pm = IPositionManager(_positionManager);
+        _fre = IFundingRateEngine(_fundingRateEngine);
+        _oa = IOracleAdapter(_oracleAdapter);
+        _le = ILiquidationEngine(_liquidationEngine);
+        _fm = IFeeManager(_feeManager);
     }
 
     /// @notice Pause the market (onlyOwner)
@@ -139,6 +141,6 @@ contract PerpetualIndexMarket is
         emit IndexValueUpdated(newValue, block.timestamp);
     }
 
-    // --- Business logic functions to be implemented in future iterations ---
+    // --- Business logic functions to be implemented in next steps ---
     // openPosition, closePosition, settleFunding, liquidate, etc.
 }
