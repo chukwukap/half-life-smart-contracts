@@ -12,11 +12,13 @@ import {ILiquidationEngine} from "./interfaces/ILiquidationEngine.sol";
 import {IFeeManager} from "./interfaces/IFeeManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IPerpetualIndexMarket} from "./interfaces/IPerpetualIndexMarket.sol";
 
 /// @title PerpetualIndexMarket
 /// @notice Main contract for Half-Life perpetual index betting market
 /// @dev Integrates all modules and implements business logic for perpetual trading
 contract PerpetualIndexMarket is
+    IPerpetualIndexMarket,
     Initializable,
     OwnableUpgradeable,
     PausableUpgradeable,
