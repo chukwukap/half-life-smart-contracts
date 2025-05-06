@@ -49,6 +49,10 @@ contract PerpetualIndexMarket is
     event MarketUnpaused(address indexed admin);
     /// @notice Emitted when the index value is updated by the oracle
     event IndexValueUpdated(uint256 newValue, uint256 timestamp);
+    /// @notice Emitted when a user deposits margin
+    event MarginDeposited(address indexed user, uint256 amount);
+    /// @notice Emitted when a user withdraws margin
+    event MarginWithdrawn(address indexed user, uint256 amount);
 
     /// @dev Custom errors for gas efficiency
     error NotAuthorized();
@@ -81,6 +85,9 @@ contract PerpetualIndexMarket is
 
     /// @notice The ERC20 token used for margin (e.g., USDC)
     IERC20 public marginToken;
+
+    /// @notice Mapping to track user margin balances for deposit/withdraw
+    mapping(address => uint256) public userMarginBalances;
 
     /// @notice Modifier to restrict to only the oracle adapter
     modifier onlyOracle() {
@@ -223,30 +230,40 @@ contract PerpetualIndexMarket is
         emit PositionClosed(msg.sender, positionId, pnl);
     }
 
-    /// @notice Deposit margin to the contract
+    /// @notice Deposit margin to the contract and update user balance
     /// @param amount The amount to deposit
-    function depositMargin(uint256 amount) external whenNotPaused nonReentrant {
+    function depositMargin(
+        uint256 amount
+    ) external override whenNotPaused nonReentrant {
+        require(amount > 0, "Deposit must be > 0");
         marginToken.safeTransferFrom(msg.sender, address(this), amount);
-        // Optionally track user balances for withdrawals
+        userMarginBalances[msg.sender] += amount;
+        emit MarginDeposited(msg.sender, amount);
     }
 
     /// @notice Withdraw margin from the contract (if tracked)
     /// @param amount The amount to withdraw
     function withdrawMargin(
         uint256 amount
-    ) external whenNotPaused nonReentrant {
-        // Optionally check user balance
+    ) external override whenNotPaused nonReentrant {
+        require(amount > 0, "Withdraw must be > 0");
+        require(
+            userMarginBalances[msg.sender] >= amount,
+            "Insufficient margin balance"
+        );
+        // Optionally, add compliance check here (e.g., if (complianceModule != address(0)) require(ICompliance(complianceModule).canWithdraw(msg.sender, amount), "Not compliant"))
+        userMarginBalances[msg.sender] -= amount;
         marginToken.safeTransfer(msg.sender, amount);
+        emit MarginWithdrawn(msg.sender, amount);
     }
 
     /// @notice Settle funding payments between longs and shorts
     /// @dev Can be called by anyone, but only once per funding interval
-    function settleFunding() external whenNotPaused nonReentrant {
+    function settleFunding() external override whenNotPaused nonReentrant {
         // Settle funding using FundingRateEngine
         uint256 timestamp = block.timestamp;
         _fre.settleFunding(timestamp);
-        // For simplicity, collect a flat funding fee from all open positions (expand as needed)
-        // In a real implementation, iterate over all positions and apply funding payments
+        // TODO: In production, iterate over all positions and apply funding payments
         emit FundingSettled(timestamp);
     }
 
@@ -276,4 +293,7 @@ contract PerpetualIndexMarket is
     }
 
     // --- Additional business logic (settleFunding, liquidate, etc.) to be implemented next ---
+    // Placeholder for compliance module integration
+    // address public complianceModule; // To be implemented in future versions
+    // function setComplianceModule(address _complianceModule) external onlyOwner { complianceModule = _complianceModule; }
 }
