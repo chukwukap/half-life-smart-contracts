@@ -10,6 +10,8 @@ import {IFundingRateEngine} from "./interfaces/IFundingRateEngine.sol";
 import {IOracleAdapter} from "./interfaces/IOracleAdapter.sol";
 import {ILiquidationEngine} from "./interfaces/ILiquidationEngine.sol";
 import {IFeeManager} from "./interfaces/IFeeManager.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title PerpetualIndexMarket
 /// @notice Main contract for Half-Life perpetual index betting market
@@ -20,6 +22,8 @@ contract PerpetualIndexMarket is
     PausableUpgradeable,
     ReentrancyGuardUpgradeable
 {
+    using SafeERC20 for IERC20;
+
     /// @notice Emitted when a new position is opened
     event PositionOpened(
         address indexed user,
@@ -73,6 +77,9 @@ contract PerpetualIndexMarket is
     uint256 public lastIndexValue;
     uint256 public lastIndexTimestamp;
 
+    /// @notice The ERC20 token used for margin (e.g., USDC)
+    IERC20 public marginToken;
+
     /// @notice Modifier to restrict to only the oracle adapter
     modifier onlyOracle() {
         if (msg.sender != oracleAdapter) revert NotAuthorized();
@@ -91,6 +98,7 @@ contract PerpetualIndexMarket is
     /// @param _oracleAdapter Address of OracleAdapter
     /// @param _liquidationEngine Address of LiquidationEngine
     /// @param _feeManager Address of FeeManager
+    /// @param _marginToken Address of ERC20 token for margin
     /// @param _marginRequirement Initial margin requirement
     /// @param _fundingInterval Funding interval in seconds
     function initialize(
@@ -99,6 +107,7 @@ contract PerpetualIndexMarket is
         address _oracleAdapter,
         address _liquidationEngine,
         address _feeManager,
+        address _marginToken,
         uint256 _marginRequirement,
         uint256 _fundingInterval
     ) external initializer {
@@ -110,6 +119,7 @@ contract PerpetualIndexMarket is
         oracleAdapter = _oracleAdapter;
         liquidationEngine = _liquidationEngine;
         feeManager = _feeManager;
+        marginToken = IERC20(_marginToken);
         marginRequirement = _marginRequirement;
         fundingInterval = _fundingInterval;
         _pm = IPositionManager(_positionManager);
@@ -145,18 +155,21 @@ contract PerpetualIndexMarket is
     /// @param isLong True for long, false for short
     /// @param amount The position size (in index units)
     /// @param leverage The leverage to use
-    /// @dev User must send margin as msg.value (ETH) for simplicity
+    /// @param margin The margin to deposit (in marginToken)
     function openPosition(
         bool isLong,
         uint256 amount,
-        uint256 leverage
-    ) external payable whenNotPaused nonReentrant returns (uint256 positionId) {
+        uint256 leverage,
+        uint256 margin
+    ) external whenNotPaused nonReentrant returns (uint256 positionId) {
         if (amount == 0 || leverage == 0) revert InvalidInput();
-        uint256 margin = msg.value;
         if (margin < marginRequirement) revert InsufficientMargin();
+        // Transfer margin from user to contract
+        marginToken.safeTransferFrom(msg.sender, address(this), margin);
         // Calculate trading fee and collect
         uint256 tradingFee = _fm.calculateTradingFee(amount);
         if (margin <= tradingFee) revert InsufficientMargin();
+        marginToken.safeApprove(address(_fm), tradingFee);
         _fm.collectFee(msg.sender, tradingFee, "trading");
         // Get latest index value
         (uint256 indexValue, ) = _oa.getLatestIndexValue();
@@ -186,9 +199,42 @@ contract PerpetualIndexMarket is
         int256 pnl = _pm.closePosition(positionId, indexValue);
         // Calculate trading fee and collect
         uint256 tradingFee = _fm.calculateTradingFee(pos.amount);
+        marginToken.safeApprove(address(_fm), tradingFee);
         _fm.collectFee(msg.sender, tradingFee, "trading");
-        // TODO: Transfer margin + P&L - fee back to user (ETH for now)
+        // Payout: margin + pnl - fee
+        uint256 payout = pos.margin;
+        if (pnl > 0) {
+            payout += uint256(pnl);
+        } else if (uint256(-pnl) < payout) {
+            payout -= uint256(-pnl);
+        } else {
+            payout = 0;
+        }
+        if (payout > tradingFee) {
+            payout -= tradingFee;
+        } else {
+            payout = 0;
+        }
+        if (payout > 0) {
+            marginToken.safeTransfer(msg.sender, payout);
+        }
         emit PositionClosed(msg.sender, positionId, pnl);
+    }
+
+    /// @notice Deposit margin to the contract
+    /// @param amount The amount to deposit
+    function depositMargin(uint256 amount) external whenNotPaused nonReentrant {
+        marginToken.safeTransferFrom(msg.sender, address(this), amount);
+        // Optionally track user balances for withdrawals
+    }
+
+    /// @notice Withdraw margin from the contract (if tracked)
+    /// @param amount The amount to withdraw
+    function withdrawMargin(
+        uint256 amount
+    ) external whenNotPaused nonReentrant {
+        // Optionally check user balance
+        marginToken.safeTransfer(msg.sender, amount);
     }
 
     /// @notice Settle funding payments between longs and shorts
