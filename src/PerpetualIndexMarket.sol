@@ -119,6 +119,16 @@ contract PerpetualIndexMarket is
         _fm = IFeeManager(_feeManager);
     }
 
+    /// @notice Update the index value (only callable by oracle)
+    /// @param newValue The new index value
+    function updateIndexValue(uint256 newValue) external whenNotPaused {
+        if (msg.sender != oracleAdapter) revert NotAuthorized();
+        if (newValue == 0) revert InvalidInput();
+        lastIndexValue = newValue;
+        lastIndexTimestamp = block.timestamp;
+        emit IndexValueUpdated(newValue, block.timestamp);
+    }
+
     /// @notice Pause the market (onlyOwner)
     function pauseMarket() external onlyOwner {
         _pause();
@@ -129,16 +139,6 @@ contract PerpetualIndexMarket is
     function unpauseMarket() external onlyOwner {
         _unpause();
         emit MarketUnpaused(msg.sender);
-    }
-
-    /// @notice Update the index value (only callable by oracle)
-    /// @param newValue The new index value
-    function updateIndexValue(
-        uint256 newValue
-    ) external onlyOracle whenNotPaused {
-        lastIndexValue = newValue;
-        lastIndexTimestamp = block.timestamp;
-        emit IndexValueUpdated(newValue, block.timestamp);
     }
 
     /// @notice Open a new position (long or short)
