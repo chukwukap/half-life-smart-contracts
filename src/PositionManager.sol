@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.20;
+
+// NOTE: For documentation, use explicit versioned imports in deployment scripts and documentation.
+// import {OwnableUpgradeable} from "@openzeppelin/[email protected]/access/OwnableUpgradeable.sol";
+// import {PausableUpgradeable} from "@openzeppelin/[email protected]/security/PausableUpgradeable.sol";
+// import {ReentrancyGuardUpgradeable} from "@openzeppelin/[email protected]/security/ReentrancyGuardUpgradeable.sol";
+// import {Initializable} from "@openzeppelin/[email protected]/proxy/utils/Initializable.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -8,61 +14,62 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/se
 import {IPositionManager} from "./interfaces/IPositionManager.sol";
 
 /// @title PositionManager
-/// @notice Manages user positions for the Half-Life protocol
-/// @dev Upgradeable, Ownable, Pausable, ReentrancyGuard. All margin and position logic is handled here.
+/// @author Half-Life Protocol
+/// @notice Manages user positions for the Half-Life perpetual index market
+/// @dev Handles position storage, opening, closing, and margin updates
 contract PositionManager is
+    IPositionManager,
     Initializable,
     OwnableUpgradeable,
     PausableUpgradeable,
-    ReentrancyGuardUpgradeable,
-    IPositionManager
+    ReentrancyGuardUpgradeable
 {
-    /// @notice Emitted when a new position is opened
+    // --- Constants ---
+    uint256 private constant BASIS_POINTS_DENOMINATOR = 10_000;
+
+    // --- Events ---
     event PositionOpened(
         address indexed user,
-        uint256 indexed positionId,
+        uint256 positionId,
         bool isLong,
         uint256 amount,
-        uint256 leverage,
-        uint256 entryIndexValue,
-        uint256 margin
+        uint256 leverage
     );
-    /// @notice Emitted when a position is closed
-    event PositionClosed(
-        address indexed user,
-        uint256 indexed positionId,
-        int256 pnl,
-        uint256 exitIndexValue
-    );
-    /// @notice Emitted when margin is updated
+    event PositionClosed(address indexed user, uint256 positionId, int256 pnl);
     event MarginUpdated(uint256 indexed positionId, uint256 newMargin);
 
-    /// @dev Custom errors for gas efficiency
+    // --- Errors ---
     error NotAuthorized();
     error InvalidInput();
     error PositionNotFound();
     error PositionClosedError();
-    error InsufficientMargin();
 
-    /// @notice Position storage
-    mapping(uint256 => Position) private positions;
-    uint256 private nextPositionId;
-
-    /// @notice Only the market contract can call restricted functions
-    address public market;
-
-    /// @notice Array of all open position IDs
-    uint256[] private openPositionIds;
-    /// @notice Mapping from user to their open position IDs
-    mapping(address => uint256[]) private userOpenPositions;
-
+    // --- Modifiers ---
     modifier onlyMarket() {
         if (msg.sender != market) revert NotAuthorized();
         _;
     }
 
+    // --- State Variables ---
+    address public market;
+    uint256 public nextPositionId;
+    mapping(uint256 => Position) public positions;
+    uint256[] private openPositionIds;
+    mapping(address => uint256[]) private userOpenPositions;
+
+    /// @notice Position struct
+    struct Position {
+        address user;
+        bool isLong;
+        uint256 amount;
+        uint256 leverage;
+        uint256 entryIndexValue;
+        uint256 margin;
+        bool isOpen;
+    }
+
     /// @notice Initializer for upgradeable contract
-    /// @param _market The address of the PerpetualIndexMarket contract
+    /// @param _market Address of the PerpetualIndexMarket
     function initialize(address _market) external initializer {
         __Ownable_init();
         __Pausable_init();
@@ -71,7 +78,15 @@ contract PositionManager is
         nextPositionId = 1;
     }
 
-    /// @inheritdoc IPositionManager
+    /// @notice Open a new position
+    /// @dev Only callable by the market contract
+    /// @param user The address of the user
+    /// @param isLong True for long, false for short
+    /// @param amount The position size (in index units)
+    /// @param leverage The leverage to use
+    /// @param entryIndexValue The index value at entry
+    /// @param margin The margin to deposit (in marginToken)
+    /// @return positionId The ID of the new position
     function openPosition(
         address user,
         bool isLong,
@@ -89,54 +104,50 @@ contract PositionManager is
             amount: amount,
             leverage: leverage,
             entryIndexValue: entryIndexValue,
-            entryTimestamp: block.timestamp,
             margin: margin,
             isOpen: true
         });
         openPositionIds.push(positionId);
         userOpenPositions[user].push(positionId);
-        emit PositionOpened(
-            user,
-            positionId,
-            isLong,
-            amount,
-            leverage,
-            entryIndexValue,
-            margin
-        );
+        emit PositionOpened(user, positionId, isLong, amount, leverage);
     }
 
-    /// @inheritdoc IPositionManager
+    /// @notice Close an existing position
+    /// @dev Only callable by the market contract
+    /// @param positionId The ID of the position
+    /// @param indexValue The current index value
+    /// @return pnl The profit or loss from closing the position
     function closePosition(
         uint256 positionId,
-        uint256 exitIndexValue
+        uint256 indexValue
     ) external override onlyMarket whenNotPaused returns (int256 pnl) {
         Position storage pos = positions[positionId];
         if (!pos.isOpen) revert PositionClosedError();
-        pos.isOpen = false;
-        // Remove from openPositionIds and userOpenPositions
-        _removeOpenPositionId(positionId);
-        _removeUserOpenPosition(pos.user, positionId);
-        // Calculate P&L: (Current Index Value - Entry Index Value) * Position Size * Direction
-        // Direction: 1 for long, -1 for short
         int256 direction = pos.isLong ? int256(1) : int256(-1);
         pnl =
             direction *
-            int256(exitIndexValue) -
-            direction *
-            int256(pos.entryIndexValue);
-        pnl = pnl * int256(pos.amount) * int256(pos.leverage);
-        emit PositionClosed(pos.user, positionId, pnl, exitIndexValue);
+            (int256(indexValue) - int256(pos.entryIndexValue)) *
+            int256(pos.amount) *
+            int256(pos.leverage);
+        pos.isOpen = false;
+        // Remove from openPositionIds and userOpenPositions
+        _removeOpenPosition(positionId, pos.user);
+        emit PositionClosed(pos.user, positionId, pnl);
     }
 
-    /// @inheritdoc IPositionManager
+    /// @notice Get a position by ID
+    /// @param positionId The ID of the position
+    /// @return The Position struct
     function getPosition(
         uint256 positionId
-    ) external view override returns (Position memory position) {
-        position = positions[positionId];
+    ) external view override returns (Position memory) {
+        return positions[positionId];
     }
 
-    /// @inheritdoc IPositionManager
+    /// @notice Update the margin of a position
+    /// @dev Only callable by the market contract
+    /// @param positionId The ID of the position
+    /// @param newMargin The new margin value
     function updateMargin(
         uint256 positionId,
         uint256 newMargin
@@ -147,61 +158,44 @@ contract PositionManager is
         emit MarginUpdated(positionId, newMargin);
     }
 
-    /// @inheritdoc IPositionManager
-    function canLiquidate(
-        uint256 positionId,
-        uint256 currentIndexValue,
-        uint256 maintenanceMargin
-    ) external view override returns (bool canLiquidate_) {
-        Position storage pos = positions[positionId];
-        if (!pos.isOpen) return false;
-        // Calculate unrealized P&L
-        int256 direction = pos.isLong ? int256(1) : int256(-1);
-        int256 pnl = direction *
-            int256(currentIndexValue) -
-            direction *
-            int256(pos.entryIndexValue);
-        pnl = pnl * int256(pos.amount) * int256(pos.leverage);
-        // Margin after P&L
-        int256 marginAfterPnL = int256(pos.margin) + pnl;
-        canLiquidate_ = marginAfterPnL < int256(maintenanceMargin);
-    }
-
-    /// @notice Returns all open position IDs
-    function getAllOpenPositionIds() external view returns (uint256[] memory) {
+    /// @notice Get all open position IDs
+    /// @return Array of open position IDs
+    function getAllOpenPositionIds()
+        external
+        view
+        override
+        returns (uint256[] memory)
+    {
         return openPositionIds;
     }
 
-    /// @notice Returns all open position IDs for a user
+    /// @notice Get all open position IDs for a user
+    /// @param user The address of the user
+    /// @return Array of open position IDs for the user
     function getUserOpenPositionIds(
         address user
-    ) external view returns (uint256[] memory) {
+    ) external view override returns (uint256[] memory) {
         return userOpenPositions[user];
     }
 
-    /// @dev Internal: remove a positionId from openPositionIds
-    function _removeOpenPositionId(uint256 positionId) internal {
-        uint256 len = openPositionIds.length;
-        for (uint256 i = 0; i < len; i++) {
+    // --- Internal Functions ---
+    function _removeOpenPosition(uint256 positionId, address user) internal {
+        // Remove from openPositionIds
+        for (uint256 i = 0; i < openPositionIds.length; i++) {
             if (openPositionIds[i] == positionId) {
-                openPositionIds[i] = openPositionIds[len - 1];
+                openPositionIds[i] = openPositionIds[
+                    openPositionIds.length - 1
+                ];
                 openPositionIds.pop();
                 break;
             }
         }
-    }
-
-    /// @dev Internal: remove a positionId from userOpenPositions
-    function _removeUserOpenPosition(
-        address user,
-        uint256 positionId
-    ) internal {
-        uint256[] storage arr = userOpenPositions[user];
-        uint256 len = arr.length;
-        for (uint256 i = 0; i < len; i++) {
-            if (arr[i] == positionId) {
-                arr[i] = arr[len - 1];
-                arr.pop();
+        // Remove from userOpenPositions
+        uint256[] storage userPositions = userOpenPositions[user];
+        for (uint256 i = 0; i < userPositions.length; i++) {
+            if (userPositions[i] == positionId) {
+                userPositions[i] = userPositions[userPositions.length - 1];
+                userPositions.pop();
                 break;
             }
         }
