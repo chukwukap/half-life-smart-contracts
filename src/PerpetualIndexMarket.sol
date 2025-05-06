@@ -141,6 +141,55 @@ contract PerpetualIndexMarket is
         emit IndexValueUpdated(newValue, block.timestamp);
     }
 
-    // --- Business logic functions to be implemented in next steps ---
-    // openPosition, closePosition, settleFunding, liquidate, etc.
+    /// @notice Open a new position (long or short)
+    /// @param isLong True for long, false for short
+    /// @param amount The position size (in index units)
+    /// @param leverage The leverage to use
+    /// @dev User must send margin as msg.value (ETH) for simplicity
+    function openPosition(
+        bool isLong,
+        uint256 amount,
+        uint256 leverage
+    ) external payable whenNotPaused nonReentrant returns (uint256 positionId) {
+        if (amount == 0 || leverage == 0) revert InvalidInput();
+        uint256 margin = msg.value;
+        if (margin < marginRequirement) revert InsufficientMargin();
+        // Calculate trading fee and collect
+        uint256 tradingFee = _fm.calculateTradingFee(amount);
+        if (margin <= tradingFee) revert InsufficientMargin();
+        _fm.collectFee(msg.sender, tradingFee, "trading");
+        // Get latest index value
+        (uint256 indexValue, ) = _oa.getLatestIndexValue();
+        // Open position in PositionManager
+        positionId = _pm.openPosition(
+            msg.sender,
+            isLong,
+            amount,
+            leverage,
+            indexValue,
+            margin - tradingFee
+        );
+        emit PositionOpened(msg.sender, positionId, isLong, amount, leverage);
+    }
+
+    /// @notice Close an existing position
+    /// @param positionId The ID of the position
+    function closePosition(
+        uint256 positionId
+    ) external whenNotPaused nonReentrant {
+        IPositionManager.Position memory pos = _pm.getPosition(positionId);
+        if (!pos.isOpen) revert PositionNotFound();
+        if (pos.user != msg.sender) revert NotAuthorized();
+        // Get latest index value
+        (uint256 indexValue, ) = _oa.getLatestIndexValue();
+        // Close position in PositionManager and get P&L
+        int256 pnl = _pm.closePosition(positionId, indexValue);
+        // Calculate trading fee and collect
+        uint256 tradingFee = _fm.calculateTradingFee(pos.amount);
+        _fm.collectFee(msg.sender, tradingFee, "trading");
+        // TODO: Transfer margin + P&L - fee back to user (ETH for now)
+        emit PositionClosed(msg.sender, positionId, pnl);
+    }
+
+    // --- Additional business logic (settleFunding, liquidate, etc.) to be implemented next ---
 }
