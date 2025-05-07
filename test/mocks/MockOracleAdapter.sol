@@ -11,10 +11,10 @@ contract MockOracleAdapter is OracleAdapter {
 
     /// @notice Initialize the contract
     /// @param _market The market contract address
-    function initialize(address _market) external {
+    function initialize(address _market) external override {
         __Ownable_init(msg.sender);
         __Pausable_init();
-        market = _market;
+        updater = _market;
     }
 
     /// @notice Set the latest index value (for testing)
@@ -22,6 +22,8 @@ contract MockOracleAdapter is OracleAdapter {
     function setLatestIndexValue(uint256 value) external {
         _latestIndexValue = value;
         _latestTimestamp = block.timestamp;
+        lastIndexValue = value;
+        lastUpdateTimestamp = block.timestamp;
     }
 
     /// @notice Get the latest index value
@@ -34,5 +36,11 @@ contract MockOracleAdapter is OracleAdapter {
         returns (uint256 value, uint256 timestamp)
     {
         return (_latestIndexValue, _latestTimestamp);
+    }
+
+    /// @notice Get the previous index value (for testing)
+    /// @return value The previous index value
+    function getPreviousIndexValue() external view returns (uint256 value) {
+        return _latestIndexValue;
     }
 }
