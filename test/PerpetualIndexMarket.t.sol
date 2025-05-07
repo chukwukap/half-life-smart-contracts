@@ -4,10 +4,10 @@ pragma solidity 0.8.29;
 import {Test, console2} from "forge-std/Test.sol";
 import {PerpetualIndexMarket} from "../src/PerpetualIndexMarket.sol";
 import {PositionManager} from "../src/PositionManager.sol";
-import {FundingRateEngine} from "../src/FundingRateEngine.sol";
+import {MockFundingRateEngine} from "./mocks/MockFundingRateEngine.sol";
 import {OracleAdapter} from "../src/OracleAdapter.sol";
-import {LiquidationEngine} from "../src/LiquidationEngine.sol";
-import {FeeManager} from "../src/FeeManager.sol";
+import {MockLiquidationEngine} from "./mocks/MockLiquidationEngine.sol";
+import {MockFeeManager} from "./mocks/MockFeeManager.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
 /// @title PerpetualIndexMarketTest
@@ -29,10 +29,10 @@ contract PerpetualIndexMarketTest is Test {
     // --- State Variables ---
     PerpetualIndexMarket public market;
     PositionManager public positionManager;
-    FundingRateEngine public fundingRateEngine;
+    MockFundingRateEngine public fundingRateEngine;
     OracleAdapter public oracleAdapter;
-    LiquidationEngine public liquidationEngine;
-    FeeManager public feeManager;
+    MockLiquidationEngine public liquidationEngine;
+    MockFeeManager public feeManager;
     MockERC20 public marginToken;
 
     address public alice = makeAddr("alice");
@@ -54,10 +54,10 @@ contract PerpetualIndexMarketTest is Test {
 
         // Deploy core contracts
         positionManager = new PositionManager();
-        fundingRateEngine = new FundingRateEngine();
+        fundingRateEngine = new MockFundingRateEngine();
         oracleAdapter = new OracleAdapter();
-        liquidationEngine = new LiquidationEngine();
-        feeManager = new FeeManager();
+        liquidationEngine = new MockLiquidationEngine();
+        feeManager = new MockFeeManager();
 
         // Deploy main market contract
         market = new PerpetualIndexMarket();
