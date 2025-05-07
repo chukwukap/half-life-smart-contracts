@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 // NOTE: For documentation, use explicit versioned imports in deployment scripts and documentation.
 // import {OwnableUpgradeable} from "@openzeppelin/[email protected]/access/OwnableUpgradeable.sol";
@@ -7,10 +7,10 @@ pragma solidity 0.8.20;
 // import {ReentrancyGuardUpgradeable} from "@openzeppelin/[email protected]/security/ReentrancyGuardUpgradeable.sol";
 // import {Initializable} from "@openzeppelin/[email protected]/proxy/utils/Initializable.sol";
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable@5.0.1/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable@5.0.1/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable@5.0.1/security/PausableUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable@5.0.1/security/ReentrancyGuardUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {IPositionManager} from "./interfaces/IPositionManager.sol";
 
 /// @title PositionManager
@@ -29,11 +29,12 @@ contract PositionManager is
 
     // --- Events ---
     event PositionOpened(
+        uint256 indexed positionId,
         address indexed user,
-        uint256 positionId,
         bool isLong,
         uint256 amount,
-        uint256 leverage
+        uint256 leverage,
+        uint256 margin
     );
     event PositionClosed(address indexed user, uint256 positionId, int256 pnl);
     event MarginUpdated(uint256 indexed positionId, uint256 newMargin);
@@ -43,6 +44,7 @@ contract PositionManager is
     error InvalidInput();
     error PositionNotFound();
     error PositionClosedError();
+    error InsufficientMargin();
 
     // --- Modifiers ---
     modifier onlyMarket() {
@@ -109,7 +111,7 @@ contract PositionManager is
         });
         openPositionIds.push(positionId);
         userOpenPositions[user].push(positionId);
-        emit PositionOpened(user, positionId, isLong, amount, leverage);
+        emit PositionOpened(positionId, user, isLong, amount, leverage, margin);
     }
 
     /// @notice Close an existing position

@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 // NOTE: For documentation, use explicit versioned imports in deployment scripts and documentation.
 // import {OwnableUpgradeable} from "@openzeppelin/[email protected]/access/OwnableUpgradeable.sol";
 // import {PausableUpgradeable} from "@openzeppelin/[email protected]/security/PausableUpgradeable.sol";
 // import {Initializable} from "@openzeppelin/[email protected]/proxy/utils/Initializable.sol";
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable@5.0.1/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable@5.0.1/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable@5.0.1/security/PausableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {ILiquidationEngine} from "./interfaces/ILiquidationEngine.sol";
 import {IPositionManager} from "./interfaces/IPositionManager.sol";
 
 /// @title LiquidationEngine
 /// @author Half-Life Protocol
-/// @notice Handles liquidation logic for the perpetual index market
-/// @dev Checks liquidation eligibility and applies penalties
+/// @notice Handles position liquidations for the perpetual index market
+/// @dev Upgradeable and pausable contract
 contract LiquidationEngine is
     ILiquidationEngine,
     Initializable,
@@ -24,79 +24,72 @@ contract LiquidationEngine is
 {
     // --- Constants ---
     uint256 private constant BASIS_POINTS_DENOMINATOR = 10_000;
-    uint256 private constant LIQUIDATION_PENALTY_BPS = 500; // 5%
-
-    // --- Events ---
-    event PositionLiquidated(
-        uint256 indexed positionId,
-        address indexed user,
-        int256 pnl,
-        uint256 penalty
-    );
 
     // --- Errors ---
     error NotAuthorized();
     error InvalidInput();
     error PositionNotFound();
+    error InsufficientMargin();
 
     // --- State Variables ---
     address public positionManager;
+    uint256 public liquidationPenalty; // in basis points
 
     /// @notice Initializer for upgradeable contract
-    /// @param _positionManager Address of the PositionManager
+    /// @param _positionManager The PositionManager contract address
     function initialize(address _positionManager) external initializer {
-        __Ownable_init();
+        __Ownable_init(msg.sender);
         __Pausable_init();
         positionManager = _positionManager;
     }
 
     /// @notice Check if a position can be liquidated
-    /// @param positionId The ID of the position
-    /// @param indexValue The current index value
-    /// @param maintenanceMargin The required maintenance margin
-    /// @return canLiquidate True if the position is eligible for liquidation
+    /// @param positionId The position ID
+    /// @return canLiquidate Whether the position can be liquidated
     function canLiquidate(
-        uint256 positionId,
-        uint256 indexValue,
-        uint256 maintenanceMargin
+        uint256 positionId
     ) external view override returns (bool canLiquidate) {
-        IPositionManager.Position memory pos = IPositionManager(positionManager)
-            .getPosition(positionId);
-        if (!pos.isOpen) return false;
-        int256 direction = pos.isLong ? int256(1) : int256(-1);
-        int256 pnl = direction *
-            (int256(indexValue) - int256(pos.entryIndexValue)) *
-            int256(pos.amount) *
-            int256(pos.leverage);
-        int256 marginAfterPnL = int256(pos.margin) + pnl;
-        canLiquidate = marginAfterPnL < int256(maintenanceMargin);
+        // TODO: Implement liquidation check logic
+        // This could involve:
+        // 1. Getting position details from PositionManager
+        // 2. Checking if position is underwater
+        // 3. Checking if position has been open long enough
+        return false;
     }
 
-    /// @notice Liquidate a position and apply penalty
-    /// @param positionId The ID of the position
-    /// @param indexValue The current index value
-    /// @param maintenanceMargin The required maintenance margin
-    /// @return pnl The profit or loss from liquidation
-    /// @return penalty The penalty applied
-    function liquidate(
-        uint256 positionId,
-        uint256 indexValue,
-        uint256 maintenanceMargin
-    ) external override whenNotPaused returns (int256 pnl, uint256 penalty) {
-        IPositionManager.Position memory pos = IPositionManager(positionManager)
-            .getPosition(positionId);
-        if (!pos.isOpen) revert PositionNotFound();
-        int256 direction = pos.isLong ? int256(1) : int256(-1);
-        pnl =
-            direction *
-            (int256(indexValue) - int256(pos.entryIndexValue)) *
-            int256(pos.amount) *
-            int256(pos.leverage);
-        int256 marginAfterPnL = int256(pos.margin) + pnl;
-        if (marginAfterPnL >= int256(maintenanceMargin)) revert NotAuthorized();
-        penalty =
-            (pos.margin * LIQUIDATION_PENALTY_BPS) /
-            BASIS_POINTS_DENOMINATOR;
-        emit PositionLiquidated(positionId, pos.user, pnl, penalty);
+    /// @notice Liquidate a position
+    /// @param positionId The position ID
+    function liquidatePosition(
+        uint256 positionId
+    ) external override whenNotPaused {
+        if (!canLiquidate(positionId)) revert InvalidInput();
+        // TODO: Implement liquidation logic
+        // This could involve:
+        // 1. Getting position details
+        // 2. Calculating liquidation amount
+        // 3. Transferring funds
+        // 4. Updating position state
+        emit PositionLiquidated(positionId, msg.sender);
+    }
+
+    /// @notice Get the current liquidation penalty
+    /// @return penaltyBps The current liquidation penalty in basis points
+    function getLiquidationPenalty()
+        external
+        view
+        override
+        returns (uint256 penaltyBps)
+    {
+        return liquidationPenalty;
+    }
+
+    /// @notice Set the liquidation penalty (onlyOwner)
+    /// @param penaltyBps The new liquidation penalty in basis points
+    function setLiquidationPenalty(
+        uint256 penaltyBps
+    ) external override onlyOwner {
+        if (penaltyBps > BASIS_POINTS_DENOMINATOR) revert InvalidInput();
+        liquidationPenalty = penaltyBps;
+        emit LiquidationPenaltyUpdated(penaltyBps);
     }
 }

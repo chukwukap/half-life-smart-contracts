@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 // NOTE: For documentation, use explicit versioned imports in deployment scripts and documentation.
 // import {OwnableUpgradeable} from "@openzeppelin/[email protected]/access/OwnableUpgradeable.sol";
 // import {PausableUpgradeable} from "@openzeppelin/[email protected]/security/PausableUpgradeable.sol";
 // import {Initializable} from "@openzeppelin/[email protected]/proxy/utils/Initializable.sol";
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable@5.0.1/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable@5.0.1/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable@5.0.1/security/PausableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IFundingRateEngine} from "./interfaces/IFundingRateEngine.sol";
 
 /// @title FundingRateEngine
 /// @author Half-Life Protocol
-/// @notice Calculates and settles funding payments for the perpetual index market
-/// @dev Handles funding rate logic and settlement
+/// @notice Handles funding rate calculations and settlements for the perpetual index market
+/// @dev Upgradeable and pausable contract
 contract FundingRateEngine is
     IFundingRateEngine,
     Initializable,
@@ -22,16 +22,8 @@ contract FundingRateEngine is
     PausableUpgradeable
 {
     // --- Constants ---
-    uint256 private constant FUNDING_RATE_SCALE = 1e18;
     uint256 private constant BASIS_POINTS_DENOMINATOR = 10_000;
-
-    // --- Events ---
-    event FundingRateCalculated(
-        int256 fundingRate,
-        uint256 marketPrice,
-        uint256 indexValue
-    );
-    event FundingSettled(uint256 timestamp);
+    uint256 private constant FUNDING_RATE_SCALE = 1e18;
 
     // --- Errors ---
     error NotAuthorized();
@@ -40,35 +32,80 @@ contract FundingRateEngine is
     // --- State Variables ---
     uint256 public lastFundingTimestamp;
     int256 public lastFundingRate;
+    uint256 public fundingMultiplier; // in basis points
 
     /// @notice Initializer for upgradeable contract
     function initialize() external initializer {
-        __Ownable_init();
+        __Ownable_init(msg.sender);
         __Pausable_init();
         lastFundingTimestamp = block.timestamp;
         lastFundingRate = 0;
     }
 
-    /// @notice Calculate the funding rate based on market and index values
-    /// @param marketPrice The current market price
-    /// @param indexValue The current index value
-    /// @return fundingRate The calculated funding rate (scaled by FUNDING_RATE_SCALE)
+    /// @notice Calculate funding rate based on market conditions
+    /// @param longExposure Total long exposure
+    /// @param shortExposure Total short exposure
+    /// @return rate The calculated funding rate
     function calculateFundingRate(
-        uint256 marketPrice,
-        uint256 indexValue
-    ) external view override returns (int256 fundingRate) {
-        if (indexValue == 0) revert InvalidInput();
-        // Funding rate = (marketPrice - indexValue) / indexValue * FUNDING_RATE_SCALE
-        fundingRate = int256(marketPrice) - int256(indexValue);
-        fundingRate =
-            (fundingRate * int256(FUNDING_RATE_SCALE)) /
-            int256(indexValue);
+        uint256 longExposure,
+        uint256 shortExposure
+    ) external view returns (int256 rate) {
+        if (longExposure == 0 || shortExposure == 0) return 0;
+
+        // Calculate rate based on exposure imbalance
+        int256 imbalance = int256(longExposure) - int256(shortExposure);
+        rate =
+            (imbalance * int256(fundingMultiplier)) /
+            int256(BASIS_POINTS_DENOMINATOR);
     }
 
-    /// @notice Settle funding payments (update timestamp and emit event)
-    /// @param timestamp The timestamp of settlement
-    function settleFunding(uint256 timestamp) external override whenNotPaused {
-        lastFundingTimestamp = timestamp;
-        emit FundingSettled(timestamp);
+    /// @notice Settle funding payments for a position
+    /// @param positionId The position ID
+    /// @param isLong Whether the position is long
+    /// @param size The position size
+    /// @return payment The funding payment amount (positive for payment, negative for receipt)
+    function settleFunding(
+        uint256 positionId,
+        bool isLong,
+        uint256 size
+    ) external view returns (int256 payment) {
+        // Calculate time elapsed since last funding
+        uint256 timeElapsed = block.timestamp - lastFundingTimestamp;
+        if (timeElapsed == 0) return 0;
+
+        // Calculate funding payment
+        int256 rate = lastFundingRate;
+        if (isLong) {
+            payment =
+                (int256(size) * rate * int256(timeElapsed)) /
+                int256(FUNDING_RATE_SCALE);
+        } else {
+            payment =
+                -(int256(size) * rate * int256(timeElapsed)) /
+                int256(FUNDING_RATE_SCALE);
+        }
+    }
+
+    /// @notice Update funding rate (onlyOwner)
+    /// @param newRate The new funding rate
+    function updateFundingRate(int256 newRate) external onlyOwner {
+        lastFundingRate = newRate;
+        lastFundingTimestamp = block.timestamp;
+        emit FundingRateUpdated(newRate);
+    }
+
+    /// @notice Get the current funding multiplier
+    /// @return The current funding multiplier in basis points
+    function getFundingMultiplier() external view override returns (uint256) {
+        return fundingMultiplier;
+    }
+
+    /// @notice Set the funding multiplier (onlyOwner)
+    /// @param newMultiplier The new funding multiplier in basis points
+    function setFundingMultiplier(
+        uint256 newMultiplier
+    ) external override onlyOwner {
+        fundingMultiplier = newMultiplier;
+        emit FundingMultiplierUpdated(newMultiplier);
     }
 }

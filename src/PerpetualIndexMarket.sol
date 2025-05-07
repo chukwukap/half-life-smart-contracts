@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.20;
+pragma solidity 0.8.29;
 
 // NOTE: For documentation, use explicit versioned imports in deployment scripts and documentation.
 // import {OwnableUpgradeable} from "@openzeppelin/[email protected]/access/OwnableUpgradeable.sol";
@@ -9,14 +9,14 @@ pragma solidity 0.8.20;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {IPositionManager} from "./interfaces/IPositionManager.sol";
 import {IFundingRateEngine} from "./interfaces/IFundingRateEngine.sol";
 import {IOracleAdapter} from "./interfaces/IOracleAdapter.sol";
 import {ILiquidationEngine} from "./interfaces/ILiquidationEngine.sol";
 import {IFeeManager} from "./interfaces/IFeeManager.sol";
-import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IPerpetualIndexMarket} from "./interfaces/IPerpetualIndexMarket.sol";
 

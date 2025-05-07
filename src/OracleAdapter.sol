@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 // NOTE: For documentation, use explicit versioned imports in deployment scripts and documentation.
 // import {OwnableUpgradeable} from "@openzeppelin/[email protected]/access/OwnableUpgradeable.sol";
 // import {PausableUpgradeable} from "@openzeppelin/[email protected]/security/PausableUpgradeable.sol";
 // import {Initializable} from "@openzeppelin/[email protected]/proxy/utils/Initializable.sol";
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable@5.0.1/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable@5.0.1/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable@5.0.1/security/PausableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IOracleAdapter} from "./interfaces/IOracleAdapter.sol";
 
 /// @title OracleAdapter
 /// @author Half-Life Protocol
-/// @notice Adapter for pushing off-chain index values on-chain
-/// @dev Handles index value storage and access control for updates
+/// @notice Handles index value updates and retrieval for the perpetual index market
+/// @dev Upgradeable and pausable contract
 contract OracleAdapter is
     IOracleAdapter,
     Initializable,
@@ -22,45 +22,61 @@ contract OracleAdapter is
     PausableUpgradeable
 {
     // --- Events ---
-    event IndexValuePushed(uint256 newValue, uint256 timestamp);
+    event IndexValueUpdated(uint256 newValue, uint256 timestamp);
+    event OracleUpdated(address oracle);
 
     // --- Errors ---
     error NotAuthorized();
     error InvalidInput();
 
     // --- State Variables ---
-    uint256 public latestIndexValue;
-    uint256 public latestTimestamp;
     address public updater;
+    uint256 public lastIndexValue;
+    uint256 public lastUpdateTimestamp;
 
     /// @notice Initializer for upgradeable contract
     /// @param _updater Address authorized to push index values
     function initialize(address _updater) external initializer {
-        __Ownable_init();
+        __Ownable_init(msg.sender);
         __Pausable_init();
         updater = _updater;
     }
 
-    /// @notice Push a new index value (only updater)
+    /// @notice Update the index value (onlyUpdater)
     /// @param newValue The new index value
-    function pushIndexValue(uint256 newValue) external whenNotPaused {
+    function updateIndexValue(
+        uint256 newValue
+    ) external override whenNotPaused {
         if (msg.sender != updater) revert NotAuthorized();
         if (newValue == 0) revert InvalidInput();
-        latestIndexValue = newValue;
-        latestTimestamp = block.timestamp;
-        emit IndexValuePushed(newValue, block.timestamp);
+        lastIndexValue = newValue;
+        lastUpdateTimestamp = block.timestamp;
+        emit IndexValueUpdated(newValue, block.timestamp);
     }
 
-    /// @notice Get the latest index value and timestamp
-    /// @return value The latest index value
-    /// @return timestamp The timestamp of the latest value
+    /// @notice Get the latest index value
+    /// @return value The current index value
+    /// @return timestamp The timestamp of the last update
     function getLatestIndexValue()
         external
         view
         override
         returns (uint256 value, uint256 timestamp)
     {
-        value = latestIndexValue;
-        timestamp = latestTimestamp;
+        return (lastIndexValue, lastUpdateTimestamp);
+    }
+
+    /// @notice Get the current oracle address
+    /// @return oracle The current oracle address
+    function getOracle() external view override returns (address oracle) {
+        return updater;
+    }
+
+    /// @notice Set the oracle address (onlyOwner)
+    /// @param oracle The new oracle address
+    function setOracle(address oracle) external override onlyOwner {
+        if (oracle == address(0)) revert InvalidInput();
+        updater = oracle;
+        emit OracleUpdated(oracle);
     }
 }
