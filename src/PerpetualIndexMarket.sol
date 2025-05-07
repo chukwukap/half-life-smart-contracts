@@ -123,7 +123,7 @@ contract PerpetualIndexMarket is
         uint256 _marginRequirement,
         uint256 _fundingInterval
     ) external initializer {
-        __Ownable_init();
+        __Ownable_init(msg.sender);
         __Pausable_init();
         __ReentrancyGuard_init();
         positionManager = _positionManager;
@@ -184,7 +184,7 @@ contract PerpetualIndexMarket is
         marginToken.safeTransferFrom(msg.sender, address(this), marginAmount);
         uint256 tradingFee = _fm.calculateTradingFee(amount);
         if (marginAmount <= tradingFee) revert InsufficientMargin();
-        marginToken.safeApprove(address(_fm), tradingFee);
+        SafeERC20.safeApprove(marginToken, (address(_fm), tradingFee);
         _fm.collectFee(msg.sender, tradingFee, "trading");
         (uint256 indexValue, ) = _oa.getLatestIndexValue();
         positionId = _pm.openPosition(
@@ -210,7 +210,7 @@ contract PerpetualIndexMarket is
         (uint256 indexValue, ) = _oa.getLatestIndexValue();
         int256 pnl = _pm.closePosition(positionId, indexValue);
         uint256 tradingFee = _fm.calculateTradingFee(pos.amount);
-        marginToken.safeApprove(address(_fm), tradingFee);
+        SafeERC20.safeApprove(marginToken, (address(_fm), tradingFee);
         _fm.collectFee(msg.sender, tradingFee, "trading");
         uint256 payout = pos.margin;
         if (pnl > 0) {

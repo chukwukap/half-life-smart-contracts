@@ -16,7 +16,7 @@ import {IPositionManager} from "./interfaces/IPositionManager.sol";
 /// @author Half-Life Protocol
 /// @notice Handles position liquidations for the perpetual index market
 /// @dev Upgradeable and pausable contract
-contract LiquidationEngine is
+abstract contract LiquidationEngine is
     ILiquidationEngine,
     Initializable,
     OwnableUpgradeable,
@@ -73,7 +73,9 @@ contract LiquidationEngine is
         // 2. Calculating liquidation amount
         // 3. Transferring funds
         // 4. Updating position state
-        emit PositionLiquidated(positionId, msg.sender);
+        IPositionManager.Position memory pos = IPositionManager(positionManager)
+            .getPosition(positionId);
+        emit PositionLiquidated(pos.user, positionId, msg.sender);
     }
 
     /// @notice Get the current liquidation penalty

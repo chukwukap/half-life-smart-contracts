@@ -15,7 +15,7 @@ import {IFundingRateEngine} from "./interfaces/IFundingRateEngine.sol";
 /// @author Half-Life Protocol
 /// @notice Handles funding rate calculations and settlements for the perpetual index market
 /// @dev Upgradeable and pausable contract
-contract FundingRateEngine is
+abstract contract FundingRateEngine is
     IFundingRateEngine,
     Initializable,
     OwnableUpgradeable,

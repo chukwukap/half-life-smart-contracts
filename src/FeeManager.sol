@@ -15,7 +15,7 @@ import {IFeeManager} from "./interfaces/IFeeManager.sol";
 /// @author Half-Life Protocol
 /// @notice Handles fee calculation and collection for the perpetual index market
 /// @dev Supports trading and liquidation fees, upgradeable and pausable
-contract FeeManager is
+abstract contract FeeManager is
     IFeeManager,
     Initializable,
     OwnableUpgradeable,
@@ -46,7 +46,7 @@ contract FeeManager is
         uint256 _tradingFeeRate,
         uint256 _liquidationFeeRate
     ) external initializer {
-        __Ownable_init();
+        __Ownable_init(msg.sender);
         __Pausable_init();
         feeRecipient = _feeRecipient;
         tradingFeeRate = _tradingFeeRate;
