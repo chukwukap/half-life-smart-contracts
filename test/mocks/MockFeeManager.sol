@@ -14,7 +14,46 @@ contract MockFeeManager is FeeManager {
         uint256 _tradingFeeRate,
         uint256 _fundingFeeRate,
         uint256 _liquidationFeeRate
-    ) external {
-        super.initialize(address(this), _tradingFeeRate, _liquidationFeeRate);
+    ) external override {
+        __Ownable_init(msg.sender);
+        __Pausable_init();
+        feeRecipient = address(this);
+        tradingFeeRate = _tradingFeeRate;
+        liquidationFeeRate = _liquidationFeeRate;
+    }
+
+    /// @notice Distribute collected fees to treasury, insurance, and stakers
+    function distributeFees() external override {
+        // Mock implementation does nothing
+    }
+
+    /// @notice Set fee parameters
+    /// @param tradingFeeBps Trading fee in basis points
+    /// @param fundingFeeBps Funding fee in basis points
+    /// @param liquidationFeeBps Liquidation fee in basis points
+    function setFeeParameters(
+        uint256 tradingFeeBps,
+        uint256 fundingFeeBps,
+        uint256 liquidationFeeBps
+    ) external override {
+        tradingFeeRate = tradingFeeBps;
+        liquidationFeeRate = liquidationFeeBps;
+    }
+
+    /// @notice Get current fee parameters
+    /// @return tradingFeeBps Trading fee in basis points
+    /// @return fundingFeeBps Funding fee in basis points
+    /// @return liquidationFeeBps Liquidation fee in basis points
+    function getFeeParameters()
+        external
+        view
+        override
+        returns (
+            uint256 tradingFeeBps,
+            uint256 fundingFeeBps,
+            uint256 liquidationFeeBps
+        )
+    {
+        return (tradingFeeRate, 0, liquidationFeeRate);
     }
 }
