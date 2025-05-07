@@ -49,6 +49,8 @@ contract PerpetualIndexMarketTest is Test {
 
     // --- Setup ---
     function setUp() public {
+        vm.startPrank(owner);
+
         // Deploy mock token
         marginToken = new MockERC20("Margin Token", "MARGIN", 18);
 
@@ -58,12 +60,9 @@ contract PerpetualIndexMarketTest is Test {
         oracleAdapter = new OracleAdapter();
         liquidationEngine = new MockLiquidationEngine();
         feeManager = new MockFeeManager();
-
-        // Deploy main market contract
         market = new PerpetualIndexMarket();
 
-        // Initialize contracts
-        vm.startPrank(owner);
+        // Initialize contracts in the correct order
         positionManager.initialize();
         fundingRateEngine.initialize(INITIAL_FUNDING_RATE);
         oracleAdapter.initialize(address(market));
@@ -84,6 +83,7 @@ contract PerpetualIndexMarketTest is Test {
             INITIAL_MARGIN_REQUIREMENT,
             FUNDING_INTERVAL
         );
+
         vm.stopPrank();
 
         // Setup test accounts with margin tokens
