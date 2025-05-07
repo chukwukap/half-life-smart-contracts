@@ -14,7 +14,7 @@ contract MockFeeManager is FeeManager {
         uint256 _tradingFeeRate,
         uint256 _fundingFeeRate,
         uint256 _liquidationFeeRate
-    ) external override {
+    ) external {
         __Ownable_init(msg.sender);
         __Pausable_init();
         feeRecipient = address(this);

@@ -19,12 +19,12 @@ contract MockLiquidationEngine is LiquidationEngine {
     /// @param positionId The position ID
     /// @param currentIndexValue The current index value
     /// @param maintenanceMargin The maintenance margin requirement
-    /// @return canLiquidate Whether the position can be liquidated
+    /// @return isLiquidatable Whether the position can be liquidated
     function canLiquidate(
         uint256 positionId,
         uint256 currentIndexValue,
         uint256 maintenanceMargin
-    ) external view override returns (bool canLiquidate) {
+    ) external view override returns (bool isLiquidatable) {
         // Mock implementation always returns false
         return false;
     }

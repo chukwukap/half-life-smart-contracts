@@ -40,7 +40,7 @@ abstract contract LiquidationEngine is
 
     /// @notice Initializer for upgradeable contract
     /// @param _positionManager The PositionManager contract address
-    function initialize(address _positionManager) external initializer {
+    function initialize(address _positionManager) external virtual initializer {
         __Ownable_init(msg.sender);
         __Pausable_init();
         positionManager = _positionManager;
@@ -50,8 +50,8 @@ abstract contract LiquidationEngine is
     /// @param positionId The position ID
     /// @return isLiquidatable Whether the position can be liquidated
     function canLiquidate(
-        uint256 /* positionId */ // Commented out to indicate it's intentionally unused
-    ) external pure returns (bool isLiquidatable) {
+        uint256 positionId
+    ) external view returns (bool isLiquidatable) {
         // TODO: Implement liquidation check logic
         // This could involve:
         // 1. Getting position details from PositionManager
