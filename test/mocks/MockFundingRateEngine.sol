@@ -44,12 +44,7 @@ contract MockFundingRateEngine is IFundingRateEngine, Initializable {
 
     /// @notice Get the last settlement timestamp
     /// @return timestamp The last settlement timestamp
-    function getLastSettlementTimestamp()
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function getLastSettlementTimestamp() external view returns (uint256) {
         return _lastSettlementTimestamp;
     }
 
