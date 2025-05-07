@@ -5,7 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 import {PerpetualIndexMarket} from "../src/PerpetualIndexMarket.sol";
 import {PositionManager} from "../src/PositionManager.sol";
 import {MockFundingRateEngine} from "./mocks/MockFundingRateEngine.sol";
-import {OracleAdapter} from "../src/OracleAdapter.sol";
+import {MockOracleAdapter} from "./mocks/MockOracleAdapter.sol";
 import {MockLiquidationEngine} from "./mocks/MockLiquidationEngine.sol";
 import {MockFeeManager} from "./mocks/MockFeeManager.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
@@ -30,7 +30,7 @@ contract PerpetualIndexMarketTest is Test {
     PerpetualIndexMarket public market;
     PositionManager public positionManager;
     MockFundingRateEngine public fundingRateEngine;
-    OracleAdapter public oracleAdapter;
+    MockOracleAdapter public oracleAdapter;
     MockLiquidationEngine public liquidationEngine;
     MockFeeManager public feeManager;
     MockERC20 public marginToken;
@@ -57,7 +57,7 @@ contract PerpetualIndexMarketTest is Test {
         // Deploy core contracts
         positionManager = new PositionManager();
         fundingRateEngine = new MockFundingRateEngine();
-        oracleAdapter = new OracleAdapter();
+        oracleAdapter = new MockOracleAdapter();
         liquidationEngine = new MockLiquidationEngine();
         feeManager = new MockFeeManager();
         market = new PerpetualIndexMarket();
@@ -93,7 +93,7 @@ contract PerpetualIndexMarketTest is Test {
 
         // Set initial index value
         vm.prank(address(oracleAdapter));
-        market.updateIndexValue(INITIAL_INDEX_VALUE);
+        oracleAdapter.setLatestIndexValue(INITIAL_INDEX_VALUE);
     }
 
     // --- Helper Functions ---
@@ -209,7 +209,7 @@ contract PerpetualIndexMarketTest is Test {
 
         // Update index value to create some PnL
         vm.prank(address(oracleAdapter));
-        market.updateIndexValue(INITIAL_INDEX_VALUE + 100e18);
+        oracleAdapter.setLatestIndexValue(INITIAL_INDEX_VALUE + 100e18);
 
         vm.startPrank(alice);
         vm.expectEmit(true, true, false, true);
