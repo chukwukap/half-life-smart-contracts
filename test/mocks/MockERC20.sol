@@ -12,7 +12,7 @@ contract MockERC20 is ERC20 {
     /// @notice Creates a new mock ERC20 token
     /// @param name The name of the token
     /// @param symbol The symbol of the token
-    /// @param decimals The number of decimals the token uses
+    /// @param decimals_ The number of decimals the token uses
     constructor(
         string memory name,
         string memory symbol,
