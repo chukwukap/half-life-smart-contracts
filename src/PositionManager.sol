@@ -7,10 +7,10 @@ pragma solidity 0.8.20;
 // import {ReentrancyGuardUpgradeable} from "@openzeppelin/[email protected]/security/ReentrancyGuardUpgradeable.sol";
 // import {Initializable} from "@openzeppelin/[email protected]/proxy/utils/Initializable.sol";
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable@4.9.3/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable@4.9.3/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable@4.9.3/security/PausableUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable@4.9.3/security/ReentrancyGuardUpgradeable.sol";
 import {IPositionManager} from "./interfaces/IPositionManager.sol";
 
 /// @title PositionManager
