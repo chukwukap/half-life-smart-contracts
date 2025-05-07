@@ -25,6 +25,9 @@ contract LiquidationEngine is
     // --- Constants ---
     uint256 private constant BASIS_POINTS_DENOMINATOR = 10_000;
 
+    // --- Events ---
+    event LiquidationPenaltyUpdated(uint256 penaltyBps);
+
     // --- Errors ---
     error NotAuthorized();
     error InvalidInput();
@@ -62,7 +65,8 @@ contract LiquidationEngine is
     function liquidatePosition(
         uint256 positionId
     ) external override whenNotPaused {
-        if (!canLiquidate(positionId)) revert InvalidInput();
+        bool isLiquidatable = this.canLiquidate(positionId);
+        if (!isLiquidatable) revert InvalidInput();
         // TODO: Implement liquidation logic
         // This could involve:
         // 1. Getting position details
