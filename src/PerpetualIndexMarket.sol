@@ -46,7 +46,6 @@ contract PerpetualIndexMarket is
         uint256 leverage
     );
     event PositionClosed(address indexed user, uint256 positionId, int256 pnl);
-    event FundingSettled(uint256 indexed timestamp);
     event PositionLiquidated(
         address indexed user,
         uint256 positionId,
