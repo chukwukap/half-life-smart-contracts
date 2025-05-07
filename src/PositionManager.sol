@@ -2,10 +2,10 @@
 pragma solidity 0.8.29;
 
 // NOTE: For documentation, use explicit versioned imports in deployment scripts and documentation.
-// import {OwnableUpgradeable} from "@openzeppelin/[email protected]/access/OwnableUpgradeable.sol";
-// import {PausableUpgradeable} from "@openzeppelin/[email protected]/security/PausableUpgradeable.sol";
-// import {ReentrancyGuardUpgradeable} from "@openzeppelin/[email protected]/security/ReentrancyGuardUpgradeable.sol";
-// import {Initializable} from "@openzeppelin/[email protected]/proxy/utils/Initializable.sol";
+// import {OwnableUpgradeable} from "@openzeppelin/[email protected]/access/OwnableUpgradeable.sol";
+// import {PausableUpgradeable} from "@openzeppelin/[email protected]/security/PausableUpgradeable.sol";
+// import {ReentrancyGuardUpgradeable} from "@openzeppelin/[email protected]/security/ReentrancyGuardUpgradeable.sol";
+// import {Initializable} from "@openzeppelin/[email protected]/proxy/utils/Initializable.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -51,17 +51,6 @@ contract PositionManager is
     uint256 public nextPositionId;
     mapping(address => uint256[]) private userPositions;
 
-    /// @notice Position struct
-    struct Position {
-        address user;
-        bool isLong;
-        uint256 amount;
-        uint256 leverage;
-        uint256 entryIndexValue;
-        uint256 margin;
-        bool isOpen;
-    }
-
     /// @notice Initializer for upgradeable contract
     function initialize() external initializer {
         __Ownable_init(msg.sender);
@@ -84,22 +73,24 @@ contract PositionManager is
         uint256 leverage,
         uint256 indexValue,
         uint256 margin
-    ) external override whenNotPaused nonReentrant {
+    ) external whenNotPaused nonReentrant returns (uint256 positionId) {
         if (amount == 0 || leverage == 0 || margin == 0) revert InvalidInput();
 
-        uint256 positionId = nextPositionId++;
+        positionId = nextPositionId++;
         positions[positionId] = Position({
             user: user,
             isLong: isLong,
             amount: amount,
             leverage: leverage,
             entryIndexValue: indexValue,
+            entryTimestamp: block.timestamp,
             margin: margin,
             isOpen: true
         });
 
         userPositions[user].push(positionId);
         emit PositionOpened(positionId, user, isLong, amount, leverage, margin);
+        return positionId;
     }
 
     /// @notice Close a position
@@ -109,7 +100,7 @@ contract PositionManager is
     function closePosition(
         uint256 positionId,
         uint256 indexValue
-    ) external override whenNotPaused nonReentrant returns (int256 pnl) {
+    ) external whenNotPaused nonReentrant returns (int256 pnl) {
         Position storage position = positions[positionId];
         if (!position.isOpen) revert PositionNotFound();
         if (msg.sender != position.user) revert NotAuthorized();
@@ -127,13 +118,12 @@ contract PositionManager is
 
     /// @notice Get a position by ID
     /// @param positionId The position ID
-    /// @return The position details
+    /// @return position The position details
     function getPosition(
         uint256 positionId
-    ) external view override returns (Position memory) {
-        Position memory position = positions[positionId];
+    ) external view returns (Position memory position) {
+        position = positions[positionId];
         if (!position.isOpen) revert PositionNotFound();
-        return position;
     }
 
     /// @notice Get all open positions for a user
@@ -141,20 +131,20 @@ contract PositionManager is
     /// @return positionIds Array of position IDs
     function getUserPositions(
         address user
-    ) external view override returns (uint256[] memory) {
+    ) external view returns (uint256[] memory) {
         return userPositions[user];
     }
 
-    /// @notice Check if a position can be liquidated
+    /// @dev This function is used to check if a position can be liquidated
     /// @param positionId The position ID
     /// @param indexValue The current index value
     /// @param maintenanceMargin The required maintenance margin
-    /// @return canLiquidate True if the position is eligible for liquidation
+    /// @return _canLiquidate True if the position is eligible for liquidation
     function canLiquidate(
         uint256 positionId,
         uint256 indexValue,
         uint256 maintenanceMargin
-    ) external view override returns (bool canLiquidate) {
+    ) external view returns (bool _canLiquidate) {
         Position memory position = positions[positionId];
         if (!position.isOpen) return false;
 
@@ -164,7 +154,7 @@ contract PositionManager is
             int256(position.amount) *
             int256(position.leverage);
         int256 marginAfterPnL = int256(position.margin) + pnl;
-        canLiquidate = marginAfterPnL < int256(maintenanceMargin);
+        _canLiquidate = marginAfterPnL < int256(maintenanceMargin);
     }
 
     /// @notice Update the margin of a position
@@ -174,10 +164,68 @@ contract PositionManager is
     function updateMargin(
         uint256 positionId,
         uint256 newMargin
-    ) external override onlyOwner whenNotPaused {
+    ) external onlyOwner whenNotPaused {
         Position storage pos = positions[positionId];
         if (!pos.isOpen) revert PositionClosedError();
         pos.margin = newMargin;
         emit MarginUpdated(positionId, newMargin);
+    }
+
+    /// @notice Get all open position IDs for a user
+    /// @param user The user address
+    /// @return positionIds Array of open position IDs
+    function getUserOpenPositionIds(
+        address user
+    ) external view returns (uint256[] memory positionIds) {
+        uint256[] memory allUserPositions = userPositions[user];
+        uint256 openCount = 0;
+
+        // First count open positions
+        for (uint256 i = 0; i < allUserPositions.length; i++) {
+            if (positions[allUserPositions[i]].isOpen) {
+                openCount++;
+            }
+        }
+
+        // Then create array with correct size
+        positionIds = new uint256[](openCount);
+        uint256 currentIndex = 0;
+
+        // Fill array with open position IDs
+        for (uint256 i = 0; i < allUserPositions.length; i++) {
+            if (positions[allUserPositions[i]].isOpen) {
+                positionIds[currentIndex] = allUserPositions[i];
+                currentIndex++;
+            }
+        }
+    }
+
+    /// @notice Get all open position IDs in the system
+    /// @return positionIds Array of all open position IDs
+    function getAllOpenPositionIds()
+        external
+        view
+        returns (uint256[] memory positionIds)
+    {
+        uint256 openCount = 0;
+
+        // First count open positions
+        for (uint256 i = 1; i < nextPositionId; i++) {
+            if (positions[i].isOpen) {
+                openCount++;
+            }
+        }
+
+        // Then create array with correct size
+        positionIds = new uint256[](openCount);
+        uint256 currentIndex = 0;
+
+        // Fill array with open position IDs
+        for (uint256 i = 1; i < nextPositionId; i++) {
+            if (positions[i].isOpen) {
+                positionIds[currentIndex] = i;
+                currentIndex++;
+            }
+        }
     }
 }

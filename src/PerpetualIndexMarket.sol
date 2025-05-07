@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.29;
 
 // NOTE: For documentation, use explicit versioned imports in deployment scripts and documentation.
 // import {OwnableUpgradeable} from "@openzeppelin/[email protected]/access/OwnableUpgradeable.sol";
@@ -37,23 +37,11 @@ contract PerpetualIndexMarket is
     uint256 private constant BASIS_POINTS_DENOMINATOR = 10_000;
     uint256 private constant FUNDING_RATE_SCALE = 1e18;
 
-    // --- Events ---
-    event PositionOpened(
-        address indexed user,
-        uint256 positionId,
-        bool isLong,
-        uint256 amount,
-        uint256 leverage
+    event IndexValueUpdated(
+        uint256 newValue,
+        uint256 timestamp,
+        address updater
     );
-    event PositionClosed(address indexed user, uint256 positionId, int256 pnl);
-    event PositionLiquidated(
-        address indexed user,
-        uint256 positionId,
-        address liquidator
-    );
-    event MarketPaused(address indexed admin);
-    event MarketUnpaused(address indexed admin);
-    event IndexValueUpdated(uint256 newValue, uint256 timestamp);
     event MarginDeposited(address indexed user, uint256 amount);
     event MarginWithdrawn(address indexed user, uint256 amount);
     event FundingPaymentApplied(
@@ -149,7 +137,7 @@ contract PerpetualIndexMarket is
         if (newValue == 0) revert InvalidInput();
         lastIndexValue = newValue;
         lastIndexTimestamp = block.timestamp;
-        emit IndexValueUpdated(newValue, block.timestamp);
+        emit IndexValueUpdated(newValue, block.timestamp, msg.sender);
     }
 
     /// @notice Pause the market (onlyOwner)
@@ -184,7 +172,7 @@ contract PerpetualIndexMarket is
         marginToken.safeTransferFrom(msg.sender, address(this), marginAmount);
         uint256 tradingFee = _fm.calculateTradingFee(amount);
         if (marginAmount <= tradingFee) revert InsufficientMargin();
-        SafeERC20.safeApprove(marginToken, (address(_fm), tradingFee);
+        marginToken.approve(address(_fm), tradingFee);
         _fm.collectFee(msg.sender, tradingFee, "trading");
         (uint256 indexValue, ) = _oa.getLatestIndexValue();
         positionId = _pm.openPosition(
@@ -210,7 +198,7 @@ contract PerpetualIndexMarket is
         (uint256 indexValue, ) = _oa.getLatestIndexValue();
         int256 pnl = _pm.closePosition(positionId, indexValue);
         uint256 tradingFee = _fm.calculateTradingFee(pos.amount);
-        SafeERC20.safeApprove(marginToken, (address(_fm), tradingFee);
+        marginToken.approve(address(_fm), tradingFee);
         _fm.collectFee(msg.sender, tradingFee, "trading");
         uint256 payout = pos.margin;
         if (pnl > 0) {
@@ -237,7 +225,7 @@ contract PerpetualIndexMarket is
     function depositMargin(
         uint256 amount
     ) external override whenNotPaused nonReentrant {
-        require(amount > 0, "Deposit must be > 0");
+        if (amount == 0) revert InvalidInput();
         marginToken.safeTransferFrom(msg.sender, address(this), amount);
         userMarginBalances[msg.sender] += amount;
         emit MarginDeposited(msg.sender, amount);
@@ -249,11 +237,9 @@ contract PerpetualIndexMarket is
     function withdrawMargin(
         uint256 amount
     ) external override whenNotPaused nonReentrant {
-        require(amount > 0, "Withdraw must be > 0");
-        require(
-            userMarginBalances[msg.sender] >= amount,
-            "Insufficient margin balance"
-        );
+        if (amount == 0) revert InvalidInput();
+        if (userMarginBalances[msg.sender] < amount)
+            revert InsufficientMargin();
         uint256[] memory userOpenIds = _pm.getUserOpenPositionIds(msg.sender);
         (uint256 indexValue, ) = _oa.getLatestIndexValue();
         for (uint256 i = 0; i < userOpenIds.length; i++) {
@@ -329,7 +315,7 @@ contract PerpetualIndexMarket is
             marginRequirement
         );
         if (!canLiquidate) revert NotAuthorized();
-        (int256 pnl, uint256 penalty) = _le.liquidate(
+        (, uint256 penalty) = _le.liquidate(
             positionId,
             indexValue,
             marginRequirement

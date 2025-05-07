@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.29;
 
 /// @title IFeeManager
 /// @notice Interface for the FeeManager contract in Half-Life protocol
 interface IFeeManager {
     /// @notice Emitted when fees are collected
-    event FeeCollected(address indexed user, uint256 amount, string feeType);
+    // event FeeCollected(address indexed user, uint256 amount, string feeType);
     /// @notice Emitted when fees are distributed
     event FeesDistributed(
         uint256 treasuryAmount,

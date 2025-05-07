@@ -58,7 +58,7 @@ abstract contract FeeManager is
     /// @return fee The trading fee
     function calculateTradingFee(
         uint256 amount
-    ) external view override returns (uint256 fee) {
+    ) external view returns (uint256 fee) {
         fee = (amount * tradingFeeRate) / BASIS_POINTS_DENOMINATOR;
     }
 
@@ -67,7 +67,7 @@ abstract contract FeeManager is
     /// @return fee The liquidation fee
     function calculateLiquidationFee(
         uint256 amount
-    ) external view override returns (uint256 fee) {
+    ) external view returns (uint256 fee) {
         fee = (amount * liquidationFeeRate) / BASIS_POINTS_DENOMINATOR;
     }
 

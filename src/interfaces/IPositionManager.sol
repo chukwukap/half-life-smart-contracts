@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.29;
 
 /// @title IPositionManager
 /// @notice Interface for the PositionManager contract in Half-Life protocol
@@ -64,4 +64,18 @@ interface IPositionManager {
         uint256 currentIndexValue,
         uint256 maintenanceMargin
     ) external view returns (bool canLiquidate);
+
+    /// @notice Get all open position IDs for a user
+    /// @param user The user address
+    /// @return positionIds Array of open position IDs
+    function getUserOpenPositionIds(
+        address user
+    ) external view returns (uint256[] memory positionIds);
+
+    /// @notice Get all open position IDs in the system
+    /// @return positionIds Array of all open position IDs
+    function getAllOpenPositionIds()
+        external
+        view
+        returns (uint256[] memory positionIds);
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.29;
 
 /// @title IFundingRateEngine
 /// @notice Interface for the FundingRateEngine contract in Half-Life protocol

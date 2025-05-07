@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.29;
 
 /// @title IOracleAdapter
 /// @notice Interface for the OracleAdapter contract in Half-Life protocol

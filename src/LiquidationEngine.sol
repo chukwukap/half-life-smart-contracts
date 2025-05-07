@@ -50,8 +50,8 @@ abstract contract LiquidationEngine is
     /// @param positionId The position ID
     /// @return isLiquidatable Whether the position can be liquidated
     function canLiquidate(
-        uint256 positionId
-    ) external view override returns (bool isLiquidatable) {
+        uint256 /* positionId */ // Commented out to indicate it's intentionally unused
+    ) external pure returns (bool isLiquidatable) {
         // TODO: Implement liquidation check logic
         // This could involve:
         // 1. Getting position details from PositionManager
@@ -62,9 +62,7 @@ abstract contract LiquidationEngine is
 
     /// @notice Liquidate a position
     /// @param positionId The position ID
-    function liquidatePosition(
-        uint256 positionId
-    ) external override whenNotPaused {
+    function liquidatePosition(uint256 positionId) external whenNotPaused {
         bool isLiquidatable = this.canLiquidate(positionId);
         if (!isLiquidatable) revert InvalidInput();
         // TODO: Implement liquidation logic
@@ -75,25 +73,24 @@ abstract contract LiquidationEngine is
         // 4. Updating position state
         IPositionManager.Position memory pos = IPositionManager(positionManager)
             .getPosition(positionId);
-        emit PositionLiquidated(pos.user, positionId, msg.sender);
+        emit PositionLiquidated(
+            pos.user,
+            positionId,
+            msg.sender,
+            int256(pos.amount),
+            pos.leverage
+        );
     }
 
     /// @notice Get the current liquidation penalty
     /// @return penaltyBps The current liquidation penalty in basis points
-    function getLiquidationPenalty()
-        external
-        view
-        override
-        returns (uint256 penaltyBps)
-    {
+    function getLiquidationPenalty() external view returns (uint256) {
         return liquidationPenalty;
     }
 
     /// @notice Set the liquidation penalty (onlyOwner)
     /// @param penaltyBps The new liquidation penalty in basis points
-    function setLiquidationPenalty(
-        uint256 penaltyBps
-    ) external override onlyOwner {
+    function setLiquidationPenalty(uint256 penaltyBps) external onlyOwner {
         if (penaltyBps > BASIS_POINTS_DENOMINATOR) revert InvalidInput();
         liquidationPenalty = penaltyBps;
         emit LiquidationPenaltyUpdated(penaltyBps);

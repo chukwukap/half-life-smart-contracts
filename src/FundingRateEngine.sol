@@ -47,17 +47,19 @@ abstract contract FundingRateEngine is
     }
 
     /// @notice Calculate funding rate based on market conditions
-    /// @param longExposure Total long exposure
-    /// @param shortExposure Total short exposure
+    /// @param currentPrice The current price of the asset
+    /// @param entryPrice The entry price of the position
+    /// @param /* positionId */  // Commented out to indicate it's intentionally unused
     /// @return rate The calculated funding rate
     function calculateFundingRate(
-        uint256 longExposure,
-        uint256 shortExposure
+        uint256 currentPrice,
+        uint256 entryPrice,
+        uint256 /* positionId */ // Commented out to indicate it's intentionally unused
     ) external view returns (int256 rate) {
-        if (longExposure == 0 || shortExposure == 0) return 0;
+        if (currentPrice == 0 || entryPrice == 0) return 0;
 
         // Calculate rate based on exposure imbalance
-        int256 imbalance = int256(longExposure) - int256(shortExposure);
+        int256 imbalance = int256(currentPrice) - int256(entryPrice);
         rate =
             (imbalance * int256(fundingMultiplier)) /
             int256(BASIS_POINTS_DENOMINATOR);

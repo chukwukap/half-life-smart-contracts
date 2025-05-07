@@ -22,7 +22,11 @@ contract OracleAdapter is
     PausableUpgradeable
 {
     // --- Events ---
-    event IndexValueUpdated(uint256 newValue, uint256 timestamp);
+    event IndexValueUpdated(
+        uint256 newValue,
+        uint256 timestamp,
+        address updater
+    );
     event OracleUpdated(address oracle);
 
     // --- Errors ---
@@ -51,7 +55,7 @@ contract OracleAdapter is
         if (newValue == 0) revert InvalidInput();
         lastIndexValue = newValue;
         lastUpdateTimestamp = block.timestamp;
-        emit IndexValueUpdated(newValue, block.timestamp);
+        emit IndexValueUpdated(newValue, block.timestamp, msg.sender);
     }
 
     /// @notice Get the latest index value
