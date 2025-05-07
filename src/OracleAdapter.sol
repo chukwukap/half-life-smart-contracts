@@ -40,7 +40,7 @@ contract OracleAdapter is
 
     /// @notice Initializer for upgradeable contract
     /// @param _updater Address authorized to push index values
-    function initialize(address _updater) external initializer {
+    function initialize(address _updater) external virtual initializer {
         __Ownable_init(msg.sender);
         __Pausable_init();
         updater = _updater;
@@ -64,6 +64,7 @@ contract OracleAdapter is
     function getLatestIndexValue()
         external
         view
+        virtual
         override
         returns (uint256 value, uint256 timestamp)
     {

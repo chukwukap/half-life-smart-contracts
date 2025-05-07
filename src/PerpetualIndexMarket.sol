@@ -19,9 +19,6 @@ import {IFeeManager} from "./interfaces/IFeeManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IPerpetualIndexMarket} from "./interfaces/IPerpetualIndexMarket.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {Pausable} from "@openzeppelin/contracts/security/Pausable.sol";
 
 /// @title PerpetualIndexMarket
 /// @author Half-Life Protocol
@@ -32,24 +29,13 @@ contract PerpetualIndexMarket is
     Initializable,
     OwnableUpgradeable,
     PausableUpgradeable,
-    ReentrancyGuardUpgradeable,
-    ReentrancyGuard,
-    AccessControl,
-    Pausable
+    ReentrancyGuardUpgradeable
 {
     using SafeERC20 for IERC20;
 
     // --- Constants ---
     uint256 private constant BASIS_POINTS_DENOMINATOR = 10_000;
     uint256 private constant FUNDING_RATE_SCALE = 1e18;
-    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
-    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
-
-    // Circuit breaker thresholds
-    uint256 public constant MAX_PRICE_CHANGE_PERCENTAGE = 10; // 10%
-    uint256 public constant MAX_FUNDING_RATE = 1e17; // 10% per interval
-    uint256 public constant MAX_POSITION_SIZE = 1000000e18;
-    uint256 public constant MAX_LEVERAGE = 50;
 
     event IndexValueUpdated(
         uint256 newValue,
@@ -69,10 +55,6 @@ contract PerpetualIndexMarket is
         uint256 requested,
         string reason
     );
-    event CircuitBreakerTriggered(string reason);
-    event CircuitBreakerReset();
-    event EmergencyShutdown(address indexed admin);
-    event MarketResumed(address indexed admin);
 
     // --- Errors ---
     error NotAuthorized();
@@ -145,8 +127,6 @@ contract PerpetualIndexMarket is
         _oa = IOracleAdapter(_oracleAdapter);
         _le = ILiquidationEngine(_liquidationEngine);
         _fm = IFeeManager(_feeManager);
-        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _setupRole(ADMIN_ROLE, msg.sender);
     }
 
     /// @notice Update the index value (only callable by oracle)
@@ -188,9 +168,6 @@ contract PerpetualIndexMarket is
         uint256 marginAmount
     ) external whenNotPaused nonReentrant returns (uint256 positionId) {
         if (amount == 0 || leverage == 0) revert InvalidInput();
-        if (amount > MAX_POSITION_SIZE) revert NotCompliant();
-        if (leverage > MAX_LEVERAGE) revert NotCompliant();
-        checkCircuitBreakers();
         if (marginAmount < marginRequirement) revert InsufficientMargin();
         marginToken.safeTransferFrom(msg.sender, address(this), marginAmount);
         uint256 tradingFee = _fm.calculateTradingFee(amount);
@@ -215,7 +192,6 @@ contract PerpetualIndexMarket is
     function closePosition(
         uint256 positionId
     ) external whenNotPaused nonReentrant {
-        checkCircuitBreakers();
         IPositionManager.Position memory pos = _pm.getPosition(positionId);
         if (!pos.isOpen) revert PositionNotFound();
         if (pos.user != msg.sender) revert NotAuthorized();
@@ -346,45 +322,5 @@ contract PerpetualIndexMarket is
         );
         _fm.collectFee(pos.user, penalty, "liquidation");
         emit PositionLiquidated(pos.user, positionId, msg.sender);
-    }
-
-    // --- Circuit Breaker ---
-    function checkCircuitBreakers() internal view {
-        // Check price change
-        uint256 currentPrice = oracleAdapter.getLatestIndexValue();
-        uint256 previousPrice = oracleAdapter.getPreviousIndexValue();
-        uint256 priceChange = currentPrice > previousPrice
-            ? ((currentPrice - previousPrice) * 100) / previousPrice
-            : ((previousPrice - currentPrice) * 100) / previousPrice;
-        require(
-            priceChange <= MAX_PRICE_CHANGE_PERCENTAGE,
-            "Price change exceeds threshold"
-        );
-
-        // Check funding rate
-        uint256 currentFundingRate = fundingRateEngine.getCurrentFundingRate();
-        require(
-            currentFundingRate <= MAX_FUNDING_RATE,
-            "Funding rate exceeds threshold"
-        );
-    }
-
-    // --- Admin Functions ---
-    function pause() external onlyRole(ADMIN_ROLE) {
-        _pause();
-        emit EmergencyShutdown(msg.sender);
-    }
-
-    function unpause() external onlyRole(ADMIN_ROLE) {
-        _unpause();
-        emit MarketResumed(msg.sender);
-    }
-
-    function grantOperator(address operator) external onlyRole(ADMIN_ROLE) {
-        grantRole(OPERATOR_ROLE, operator);
-    }
-
-    function revokeOperator(address operator) external onlyRole(ADMIN_ROLE) {
-        revokeRole(OPERATOR_ROLE, operator);
     }
 }

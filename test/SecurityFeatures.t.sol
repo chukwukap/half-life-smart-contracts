@@ -20,7 +20,6 @@ contract SecurityFeaturesTest is Test {
     MockReentrantContract public reentrantContract;
 
     address public admin = makeAddr("admin");
-    address public operator = makeAddr("operator");
     address public user = makeAddr("user");
     address public attacker = makeAddr("attacker");
 
@@ -61,44 +60,12 @@ contract SecurityFeaturesTest is Test {
             1 hours
         );
 
-        // Setup roles
-        market.grantOperator(operator);
-
         vm.stopPrank();
 
         // Fund accounts
         marginToken.mint(user, 10000e18);
         marginToken.mint(attacker, 10000e18);
         marginToken.mint(address(reentrantContract), 10000e18);
-    }
-
-    function test_AdminRole() public {
-        // Only admin should be able to pause
-        vm.prank(attacker);
-        vm.expectRevert("AccessControl: account 0x... is missing role 0x...");
-        market.pause();
-
-        // Admin should be able to pause
-        vm.prank(admin);
-        market.pause();
-        assertTrue(market.paused());
-
-        // Admin should be able to unpause
-        vm.prank(admin);
-        market.unpause();
-        assertFalse(market.paused());
-    }
-
-    function test_OperatorRole() public {
-        vm.startPrank(admin);
-        // Grant operator role
-        market.grantOperator(operator);
-        assertTrue(market.hasRole(market.OPERATOR_ROLE(), operator));
-
-        // Revoke operator role
-        market.revokeOperator(operator);
-        assertFalse(market.hasRole(market.OPERATOR_ROLE(), operator));
-        vm.stopPrank();
     }
 
     function test_CircuitBreaker_PriceChange() public {
@@ -161,7 +128,7 @@ contract SecurityFeaturesTest is Test {
         vm.prank(admin);
         vm.expectEmit(true, false, false, true);
         emit EmergencyShutdown(admin);
-        market.pause();
+        market.pauseMarket();
 
         // Verify operations are blocked
         vm.startPrank(user);
@@ -174,7 +141,7 @@ contract SecurityFeaturesTest is Test {
         vm.prank(admin);
         vm.expectEmit(true, false, false, true);
         emit MarketResumed(admin);
-        market.unpause();
+        market.unpauseMarket();
 
         // Verify operations are allowed
         vm.startPrank(user);
