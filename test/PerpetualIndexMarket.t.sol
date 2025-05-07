@@ -44,6 +44,8 @@ contract PerpetualIndexMarketTest is Test {
     uint256 public constant INITIAL_MARGIN_REQUIREMENT = 1000e18;
     uint256 public constant FUNDING_INTERVAL = 1 hours;
     uint256 public constant INITIAL_INDEX_VALUE = 1000e18;
+    uint256 public constant INITIAL_FUNDING_RATE = 0.0001e18; // 0.01% per hour
+    uint256 public constant INITIAL_FEE_RATE = 0.001e18; // 0.1%
 
     // --- Setup ---
     function setUp() public {
@@ -63,10 +65,14 @@ contract PerpetualIndexMarketTest is Test {
         // Initialize contracts
         vm.startPrank(owner);
         positionManager.initialize();
-        fundingRateEngine.initialize();
-        oracleAdapter.initialize();
-        liquidationEngine.initialize(positionManager);
-        feeManager.initialize();
+        fundingRateEngine.initialize(INITIAL_FUNDING_RATE);
+        oracleAdapter.initialize(address(market));
+        liquidationEngine.initialize(address(positionManager));
+        feeManager.initialize(
+            INITIAL_FEE_RATE,
+            INITIAL_FEE_RATE,
+            INITIAL_FEE_RATE
+        );
 
         market.initialize(
             address(positionManager),
