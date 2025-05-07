@@ -45,10 +45,10 @@ contract LiquidationEngine is
 
     /// @notice Check if a position can be liquidated
     /// @param positionId The position ID
-    /// @return canLiquidate Whether the position can be liquidated
+    /// @return isLiquidatable Whether the position can be liquidated
     function canLiquidate(
         uint256 positionId
-    ) external view override returns (bool canLiquidate) {
+    ) external view override returns (bool isLiquidatable) {
         // TODO: Implement liquidation check logic
         // This could involve:
         // 1. Getting position details from PositionManager

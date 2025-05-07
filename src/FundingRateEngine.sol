@@ -25,6 +25,10 @@ contract FundingRateEngine is
     uint256 private constant BASIS_POINTS_DENOMINATOR = 10_000;
     uint256 private constant FUNDING_RATE_SCALE = 1e18;
 
+    // --- Events ---
+    event FundingRateUpdated(int256 newRate);
+    event FundingMultiplierUpdated(uint256 newMultiplier);
+
     // --- Errors ---
     error NotAuthorized();
     error InvalidInput();
