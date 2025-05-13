@@ -3,75 +3,50 @@
 # Load environment variables
 source .env
 
-# Function to run a script
-run_script() {
-    local script=$1
-    local function=$2
-    local args=$3
-    local network=$4
+# Function to run the deployment script
+run_deploy() {
+    local network=$1
+    local verify=$2
 
-    echo "Running $script..."
-    if [ -z "$function" ]; then
-        forge script script/$script.s.sol --rpc-url $network --broadcast --verify -vvvv
-    else
-        forge script script/$script.s.sol:$function $args --rpc-url $network --broadcast --verify -vvvv
+    echo "Deploying contracts to $network..."
+    
+    # Build the command
+    local cmd="forge script script/Deploy.s.sol --rpc-url $network --broadcast"
+    
+    # Add verification if requested
+    if [ "$verify" = "true" ]; then
+        cmd="$cmd --verify"
     fi
-}
-
-# Deploy contracts
-deploy() {
-    local network=$1
-    run_script "Deploy" "" "" $network
-}
-
-# Upgrade contracts
-upgrade() {
-    local network=$1
-    run_script "Upgrade" "" "" $network
-}
-
-# Emergency actions
-emergency() {
-    local action=$1
-    local network=$2
-    run_script "Emergency" $action "" $network
-}
-
-# Update parameters
-update_params() {
-    local param=$1
-    local value=$2
-    local network=$3
-    run_script "Parameters" "update$param" "$value" $network
-}
-
-# Oracle setup
-setup_oracle() {
-    local action=$1
-    local value=$2
-    local network=$3
-    run_script "OracleSetup" $action "$value" $network
+    
+    # Add verbosity
+    cmd="$cmd -vvvv"
+    
+    # Execute the command
+    eval $cmd
 }
 
 # Main
 case "$1" in
-    "deploy")
-        deploy ${2:-$BASE_GOERLI_RPC}
+    "local")
+        run_deploy "http://localhost:8545" "false"
         ;;
-    "upgrade")
-        upgrade ${2:-$BASE_GOERLI_RPC}
+    "testnet")
+        run_deploy "${BASE_GOERLI_RPC:-$2}" "true"
         ;;
-    "emergency")
-        emergency $2 ${3:-$BASE_GOERLI_RPC}
-        ;;
-    "params")
-        update_params $2 $3 ${4:-$BASE_GOERLI_RPC}
-        ;;
-    "oracle")
-        setup_oracle $2 $3 ${4:-$BASE_GOERLI_RPC}
+    "mainnet")
+        run_deploy "${BASE_MAINNET_RPC:-$2}" "true"
         ;;
     *)
-        echo "Usage: $0 {deploy|upgrade|emergency|params|oracle}"
+        echo "Usage: $0 {local|testnet|mainnet} [custom_rpc_url]"
+        echo "  local    - Deploy to local Anvil network"
+        echo "  testnet  - Deploy to Base Goerli testnet"
+        echo "  mainnet  - Deploy to Base mainnet"
+        echo ""
+        echo "Examples:"
+        echo "  $0 local"
+        echo "  $0 testnet"
+        echo "  $0 mainnet"
+        echo "  $0 testnet https://custom-rpc-url"
         exit 1
         ;;
 esac 
