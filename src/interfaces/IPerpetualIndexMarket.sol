@@ -5,23 +5,13 @@ pragma solidity 0.8.29;
 /// @notice Interface for the PerpetualIndexMarket contract in Half-Life protocol
 interface IPerpetualIndexMarket {
     /// @notice Emitted when a new position is opened
-    event PositionOpened(
-        address indexed user,
-        uint256 positionId,
-        bool isLong,
-        uint256 amount,
-        uint256 leverage
-    );
+    event PositionOpened(address indexed trader, uint256 size, bool isLong);
     /// @notice Emitted when a position is closed
-    event PositionClosed(address indexed user, uint256 positionId, int256 pnl);
+    event PositionClosed(address indexed trader, uint256 size, bool isLong);
     /// @notice Emitted when funding is settled
-    event FundingSettled(uint256 indexed timestamp);
+    event FundingPaid(address indexed trader, uint256 amount);
     /// @notice Emitted when a position is liquidated
-    event PositionLiquidated(
-        address indexed user,
-        uint256 positionId,
-        address liquidator
-    );
+    event PositionLiquidated(address indexed trader, uint256 size, bool isLong);
     /// @notice Emitted when the market is paused or unpaused
     event MarketPaused(address indexed admin);
     event MarketUnpaused(address indexed admin);
@@ -29,28 +19,21 @@ interface IPerpetualIndexMarket {
     event IndexValueUpdated(uint256 newValue, uint256 timestamp);
 
     /// @notice Open a new position (long or short)
+    /// @param size The position size (in index units)
     /// @param isLong True for long, false for short
-    /// @param amount The position size (in index units)
-    /// @param leverage The leverage to use
-    /// @param margin The margin to deposit (in marginToken)
-    /// @return positionId The ID of the new position
-    function openPosition(
-        bool isLong,
-        uint256 amount,
-        uint256 leverage,
-        uint256 margin
-    ) external returns (uint256 positionId);
+    function openPosition(uint256 size, bool isLong) external;
 
     /// @notice Close an existing position
-    /// @param positionId The ID of the position
-    function closePosition(uint256 positionId) external;
+    /// @param size The ID of the position
+    function closePosition(uint256 size) external;
 
     /// @notice Settle funding payments between longs and shorts
-    function settleFunding() external;
+    function processFunding() external;
 
     /// @notice Trigger liquidation of a position if eligible
-    /// @param positionId The ID of the position
-    function liquidate(uint256 positionId) external;
+    /// @param size The ID of the position
+    /// @param isLong True for long, false for short
+    function liquidate(uint256 size, bool isLong) external;
 
     /// @notice Update the index value (only callable by oracle)
     /// @param newValue The new index value
@@ -63,10 +46,30 @@ interface IPerpetualIndexMarket {
     function unpauseMarket() external;
 
     /// @notice Deposit margin to the contract
-    /// @param amount The amount to deposit
-    function depositMargin(uint256 amount) external;
+    function addMargin() external payable;
 
     /// @notice Withdraw margin from the contract (if tracked)
     /// @param amount The amount to withdraw
-    function withdrawMargin(uint256 amount) external;
+    function removeMargin(uint256 amount) external;
+
+    /// @notice Get the position details
+    /// @param trader The address of the trader
+    /// @return size The position size (in index units)
+    /// @return isLong True for long, false for short
+    function getPosition(
+        address trader
+    ) external view returns (uint256 size, bool isLong);
+
+    /// @notice Get the margin balance
+    /// @param trader The address of the trader
+    /// @return margin The margin balance
+    function getMargin(address trader) external view returns (uint256);
+
+    /// @notice Get the funding rate
+    /// @return fundingRate The funding rate
+    function getFundingRate() external view returns (uint256);
+
+    /// @notice Get the oracle price
+    /// @return oraclePrice The oracle price
+    function getOraclePrice() external view returns (uint256);
 }

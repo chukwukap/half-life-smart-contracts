@@ -55,6 +55,7 @@ contract PerpetualIndexMarket is
         uint256 requested,
         string reason
     );
+    event FundingSettled(uint256 indexed timestamp);
 
     // --- Errors ---
     error NotAuthorized();
