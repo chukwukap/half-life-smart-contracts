@@ -99,8 +99,8 @@ interface IPerpetualIndexMarket {
     function getMargin(address trader) external view returns (uint256);
 
     /// @notice Get the funding rate from the funding rate engine
-    /// @return fundingRate The funding rate
-    function getFundingRate() external view returns (uint256);
+    /// @return fundingRate The funding rate (can be negative)
+    function getFundingRate() external view returns (int256);
 
     /// @notice Get the latest oracle price
     /// @return oraclePrice The oracle price

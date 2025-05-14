@@ -31,25 +31,6 @@ contract PerpetualIndexMarket is
     uint256 private constant BASIS_POINTS_DENOMINATOR = 10_000;
     uint256 private constant FUNDING_RATE_SCALE = 1e18;
 
-    event IndexValueUpdated(
-        uint256 newValue,
-        uint256 timestamp,
-        address updater
-    );
-    event MarginDeposited(address indexed user, uint256 amount);
-    event MarginWithdrawn(address indexed user, uint256 amount);
-    event FundingPaymentApplied(
-        uint256 indexed positionId,
-        address indexed user,
-        int256 fundingPayment,
-        uint256 newMargin
-    );
-    event WithdrawalBlocked(
-        address indexed user,
-        uint256 requested,
-        string reason
-    );
-
     // --- Errors ---
     error NotAuthorized();
     error InvalidInput();
@@ -325,8 +306,8 @@ contract PerpetualIndexMarket is
     }
 
     /// @notice Get the funding rate from the funding rate engine
-    /// @return fundingRate The funding rate
-    function getFundingRate() external view override returns (uint256) {
+    /// @return fundingRate The funding rate (can be negative)
+    function getFundingRate() external view override returns (int256) {
         (uint256 marketPrice, ) = _oa.getLatestIndexValue();
         // For security, always use the latest oracle price
         return _fre.calculateFundingRate(marketPrice, lastIndexValue);
