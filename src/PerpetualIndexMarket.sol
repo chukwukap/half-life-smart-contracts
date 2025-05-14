@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.29;
 
-// NOTE: For documentation, use explicit versioned imports in deployment scripts and documentation.
-// import {OwnableUpgradeable} from "@openzeppelin/[email protected]/access/OwnableUpgradeable.sol";
-// import {PausableUpgradeable} from "@openzeppelin/[email protected]/security/PausableUpgradeable.sol";
-// import {ReentrancyGuardUpgradeable} from "@openzeppelin/[email protected]/security/ReentrancyGuardUpgradeable.sol";
-// import {Initializable} from "@openzeppelin/[email protected]/proxy/utils/Initializable.sol";
-
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
@@ -55,7 +49,6 @@ contract PerpetualIndexMarket is
         uint256 requested,
         string reason
     );
-    event FundingSettled(uint256 indexed timestamp);
 
     // --- Errors ---
     error NotAuthorized();
@@ -223,9 +216,7 @@ contract PerpetualIndexMarket is
     /// @notice Deposit margin to the contract and update user balance
     /// @dev Emits MarginDeposited
     /// @param amount The amount to deposit
-    function depositMargin(
-        uint256 amount
-    ) external override whenNotPaused nonReentrant {
+    function depositMargin(uint256 amount) external whenNotPaused nonReentrant {
         if (amount == 0) revert InvalidInput();
         marginToken.safeTransferFrom(msg.sender, address(this), amount);
         userMarginBalances[msg.sender] += amount;
@@ -237,7 +228,7 @@ contract PerpetualIndexMarket is
     /// @param amount The amount to withdraw
     function withdrawMargin(
         uint256 amount
-    ) external override whenNotPaused nonReentrant {
+    ) external whenNotPaused nonReentrant {
         if (amount == 0) revert InvalidInput();
         if (userMarginBalances[msg.sender] < amount)
             revert InsufficientMargin();
@@ -270,7 +261,7 @@ contract PerpetualIndexMarket is
 
     /// @notice Settle funding payments between longs and shorts
     /// @dev Iterates over all open positions and applies funding payments. Emits FundingPaymentApplied and FundingSettled.
-    function settleFunding() external override whenNotPaused nonReentrant {
+    function settleFunding() external whenNotPaused nonReentrant {
         uint256 timestamp = block.timestamp;
         uint256[] memory openIds = _pm.getAllOpenPositionIds();
         (uint256 marketPrice, ) = _oa.getLatestIndexValue();
@@ -300,7 +291,7 @@ contract PerpetualIndexMarket is
             );
         }
         _fre.settleFunding(timestamp);
-        emit FundingSettled(timestamp);
+        // emit FundingSettled(timestamp);
     }
 
     /// @notice Trigger liquidation of a position if eligible
