@@ -5,35 +5,75 @@ pragma solidity 0.8.29;
 /// @notice Interface for the PerpetualIndexMarket contract in Half-Life protocol
 interface IPerpetualIndexMarket {
     /// @notice Emitted when a new position is opened
-    event PositionOpened(address indexed trader, uint256 size, bool isLong);
+    event PositionOpened(
+        address indexed trader,
+        uint256 positionId,
+        bool isLong,
+        uint256 amount,
+        uint256 leverage
+    );
     /// @notice Emitted when a position is closed
-    event PositionClosed(address indexed trader, uint256 size, bool isLong);
-    /// @notice Emitted when funding is settled
-    event FundingPaid(address indexed trader, uint256 amount);
+    event PositionClosed(
+        address indexed trader,
+        uint256 positionId,
+        int256 pnl
+    );
+    /// @notice Emitted when funding payment is applied
+    event FundingPaymentApplied(
+        uint256 indexed positionId,
+        address indexed user,
+        int256 fundingPayment,
+        uint256 newMargin
+    );
     /// @notice Emitted when a position is liquidated
-    event PositionLiquidated(address indexed trader, uint256 size, bool isLong);
+    event PositionLiquidated(
+        address indexed trader,
+        uint256 positionId,
+        address liquidator
+    );
     /// @notice Emitted when the market is paused or unpaused
     event MarketPaused(address indexed admin);
     event MarketUnpaused(address indexed admin);
     /// @notice Emitted when the index value is updated by the oracle
-    event IndexValueUpdated(uint256 newValue, uint256 timestamp);
+    event IndexValueUpdated(
+        uint256 newValue,
+        uint256 timestamp,
+        address updater
+    );
+    /// @notice Emitted when margin is deposited
+    event MarginDeposited(address indexed user, uint256 amount);
+    /// @notice Emitted when margin is withdrawn
+    event MarginWithdrawn(address indexed user, uint256 amount);
+    /// @notice Emitted when a withdrawal is blocked
+    event WithdrawalBlocked(
+        address indexed user,
+        uint256 requested,
+        string reason
+    );
 
     /// @notice Open a new position (long or short)
-    /// @param size The position size (in index units)
     /// @param isLong True for long, false for short
-    function openPosition(uint256 size, bool isLong) external;
+    /// @param amount The position size (in index units)
+    /// @param leverage The leverage to use
+    /// @param marginAmount The margin to deposit (in marginToken)
+    /// @return positionId The ID of the new position
+    function openPosition(
+        bool isLong,
+        uint256 amount,
+        uint256 leverage,
+        uint256 marginAmount
+    ) external returns (uint256 positionId);
 
     /// @notice Close an existing position
-    /// @param size The ID of the position
-    function closePosition(uint256 size) external;
+    /// @param positionId The ID of the position
+    function closePosition(uint256 positionId) external;
 
     /// @notice Settle funding payments between longs and shorts
-    function processFunding() external;
+    function settleFunding() external;
 
     /// @notice Trigger liquidation of a position if eligible
-    /// @param size The ID of the position
-    /// @param isLong True for long, false for short
-    function liquidate(uint256 size, bool isLong) external;
+    /// @param positionId The ID of the position
+    function liquidate(uint256 positionId) external;
 
     /// @notice Update the index value (only callable by oracle)
     /// @param newValue The new index value
@@ -46,30 +86,23 @@ interface IPerpetualIndexMarket {
     function unpauseMarket() external;
 
     /// @notice Deposit margin to the contract
-    function addMargin() external payable;
+    /// @param amount The amount to deposit
+    function depositMargin(uint256 amount) external;
 
     /// @notice Withdraw margin from the contract (if tracked)
     /// @param amount The amount to withdraw
-    function removeMargin(uint256 amount) external;
+    function withdrawMargin(uint256 amount) external;
 
-    /// @notice Get the position details
-    /// @param trader The address of the trader
-    /// @return size The position size (in index units)
-    /// @return isLong True for long, false for short
-    function getPosition(
-        address trader
-    ) external view returns (uint256 size, bool isLong);
-
-    /// @notice Get the margin balance
+    /// @notice Get the margin balance for a trader
     /// @param trader The address of the trader
     /// @return margin The margin balance
     function getMargin(address trader) external view returns (uint256);
 
-    /// @notice Get the funding rate
+    /// @notice Get the funding rate from the funding rate engine
     /// @return fundingRate The funding rate
     function getFundingRate() external view returns (uint256);
 
-    /// @notice Get the oracle price
+    /// @notice Get the latest oracle price
     /// @return oraclePrice The oracle price
     function getOraclePrice() external view returns (uint256);
 }

@@ -260,7 +260,7 @@ contract PerpetualIndexMarket is
     }
 
     /// @notice Settle funding payments between longs and shorts
-    /// @dev Iterates over all open positions and applies funding payments. Emits FundingPaymentApplied and FundingSettled.
+    /// @dev Iterates over all open positions and applies funding payments. Emits FundingPaymentApplied.
     function settleFunding() external whenNotPaused nonReentrant {
         uint256 timestamp = block.timestamp;
         uint256[] memory openIds = _pm.getAllOpenPositionIds();
@@ -291,7 +291,6 @@ contract PerpetualIndexMarket is
             );
         }
         _fre.settleFunding(timestamp);
-        // emit FundingSettled(timestamp);
     }
 
     /// @notice Trigger liquidation of a position if eligible
@@ -314,5 +313,29 @@ contract PerpetualIndexMarket is
         );
         _fm.collectFee(pos.user, penalty, "liquidation");
         emit PositionLiquidated(pos.user, positionId, msg.sender);
+    }
+
+    /// @notice Get the margin balance for a trader
+    /// @param trader The address of the trader
+    /// @return margin The margin balance
+    function getMargin(
+        address trader
+    ) external view override returns (uint256) {
+        return userMarginBalances[trader];
+    }
+
+    /// @notice Get the funding rate from the funding rate engine
+    /// @return fundingRate The funding rate
+    function getFundingRate() external view override returns (uint256) {
+        (uint256 marketPrice, ) = _oa.getLatestIndexValue();
+        // For security, always use the latest oracle price
+        return _fre.calculateFundingRate(marketPrice, lastIndexValue);
+    }
+
+    /// @notice Get the latest oracle price
+    /// @return oraclePrice The oracle price
+    function getOraclePrice() external view override returns (uint256) {
+        (uint256 marketPrice, ) = _oa.getLatestIndexValue();
+        return marketPrice;
     }
 }
