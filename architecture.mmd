@@ -1,0 +1,127 @@
+%% Half-Life Protocol Architecture Diagrams (2025)
+%% Paste any section into https://mermaid.live for visualization
+
+%% 1. High-Level System Architecture
+flowchart TD
+    User["User / Trader / LP"]
+    Frontend["Frontend (Web App)"]
+    Backend["Backend / API"]
+    Oracle["OracleAdapter"]
+    Market["PerpetualIndexMarket"]
+    PositionMgr["PositionManager"]
+    Funding["FundingRateEngine"]
+    FeeMgr["FeeManager"]
+    Liquidation["LiquidationEngine"]
+    UniswapV4["Uniswap v4 Pool & HalfLifePerpetualsHook"]
+    ERC20["Margin Token (ERC20)"]
+
+    User -->|UI/Tx| Frontend
+    Frontend -->|API/Tx| Backend
+    Backend -->|Tx/Call| Market
+    Market -->|open/close/settle| PositionMgr
+    Market -->|funding| Funding
+    Market -->|fees| FeeMgr
+    Market -->|liquidation| Liquidation
+    Market -->|oracle price| Oracle
+    Market -->|margin transfer| ERC20
+    Market -->|swap/liquidity| UniswapV4
+    UniswapV4 -->|hook calls| Market
+    UniswapV4 -->|hook calls| PositionMgr
+    UniswapV4 -->|hook calls| Funding
+    UniswapV4 -->|hook calls| FeeMgr
+    UniswapV4 -->|hook calls| Oracle
+
+%% 2. Onchain Module Interaction (Detailed)
+flowchart TD
+    subgraph "Uniswap v4"
+        Pool["Uniswap v4 Pool"]
+        Hook["HalfLifePerpetualsHook"]
+    end
+
+    Market["PerpetualIndexMarket"]
+    PositionMgr["PositionManager"]
+    Funding["FundingRateEngine"]
+    FeeMgr["FeeManager"]
+    Liquidation["LiquidationEngine"]
+    Oracle["OracleAdapter"]
+    ERC20["Margin Token (ERC20)"]
+
+    Pool -->|swap/add/remove| Hook
+    Hook -->|applyFunding/isSolvent/liquidate| PositionMgr
+    Hook -->|calculateFundingRate| Funding
+    Hook -->|collectFee| FeeMgr
+    Hook -->|getLatestIndexValue| Oracle
+
+    Market -->|open/close/settle| PositionMgr
+    Market -->|funding| Funding
+    Market -->|fees| FeeMgr
+    Market -->|liquidation| Liquidation
+    Market -->|oracle price| Oracle
+    Market -->|margin transfer| ERC20
+
+%% 3. Position Lifecycle
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant Market as PerpetualIndexMarket
+    participant PositionMgr as PositionManager
+    participant ERC20 as MarginToken
+
+    User->>Frontend: Open Position (UI)
+    Frontend->>Market: openPosition(tx)
+    Market->>ERC20: Transfer margin from user
+    Market->>PositionMgr: openPosition(user, params)
+    PositionMgr-->>Market: positionId
+    Market-->>Frontend: positionId
+    Frontend-->>User: Position Opened
+
+    User->>Frontend: Close Position (UI)
+    Frontend->>Market: closePosition(positionId)
+    Market->>PositionMgr: closePosition(positionId)
+    PositionMgr-->>Market: pnl
+    Market->>ERC20: Transfer payout to user
+    Market-->>Frontend: Position Closed, PnL
+    Frontend-->>User: Position Closed, PnL
+
+%% 4. Uniswap v4 Hook Flow
+sequenceDiagram
+    participant Pool as Uniswap_v4_Pool
+    participant Hook as HalfLifePerpetualsHook
+    participant PositionMgr as PositionManager
+    participant Funding as FundingRateEngine
+    participant FeeMgr as FeeManager
+    participant Oracle as OracleAdapter
+
+    Pool->>Hook: beforeSwap()
+    Hook->>Oracle: getLatestIndexValue()
+    Hook->>Funding: calculateFundingRate()
+    Hook->>PositionMgr: applyFunding()
+    Hook->>PositionMgr: isSolvent()
+    alt Not Solvent
+        Hook->>PositionMgr: liquidate()
+    end
+    Hook->>FeeMgr: collectFee()
+    Hook-->>Pool: beforeSwap return
+    Pool->>Hook: afterSwap()
+    Hook-->>Pool: afterSwap return
+
+%% 5. Deployment/Upgrade Flow
+flowchart TD
+    Deployer["Deployer / DevOps"]
+    Script["Deploy.s.sol"]
+    Market["PerpetualIndexMarket"]
+    PositionMgr["PositionManager"]
+    Funding["FundingRateEngine"]
+    FeeMgr["FeeManager"]
+    Liquidation["LiquidationEngine"]
+    Oracle["OracleAdapter"]
+    Hook["HalfLifePerpetualsHook"]
+
+    Deployer -->|forge script| Script
+    Script -->|deploy & initialize| Market
+    Script -->|deploy & initialize| PositionMgr
+    Script -->|deploy & initialize| Funding
+    Script -->|deploy & initialize| FeeMgr
+    Script -->|deploy & initialize| Liquidation
+    Script -->|deploy & initialize| Oracle
+    Script -->|deploy & initialize| Hook 
