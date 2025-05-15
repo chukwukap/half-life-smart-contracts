@@ -13,6 +13,9 @@ interface IFeeManager {
         uint256 stakersAmount
     );
 
+    event FeeCollected(address indexed user, uint256 amount, string feeType);
+    event FeeRateUpdated(string feeType, uint256 newRate);
+
     /// @notice Calculate trading fee for a given amount
     /// @param amount The amount to calculate the fee on
     /// @return fee The trading fee amount

@@ -26,7 +26,7 @@ contract DeployScript is Script {
 
         // Initialize contracts
         oracleAdapter.initialize(address(market));
-        fundingRateEngine.initialize(0.0001e18); // 0.01% initial funding rate
+        fundingRateEngine.initialize(); // 0.01% initial funding rate
         liquidationEngine.initialize(address(market));
         feeManager.initialize(0.001e18, 0.001e18, 0.001e18); // 0.1% fees
         complianceModule.initialize(address(market));

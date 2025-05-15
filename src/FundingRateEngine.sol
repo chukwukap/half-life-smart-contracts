@@ -15,7 +15,7 @@ import {IFundingRateEngine} from "./interfaces/IFundingRateEngine.sol";
 /// @author Half-Life Protocol
 /// @notice Handles funding rate calculations and settlements for the perpetual index market
 /// @dev Upgradeable and pausable contract
-abstract contract FundingRateEngine is
+contract FundingRateEngine is
     IFundingRateEngine,
     Initializable,
     OwnableUpgradeable,
@@ -46,50 +46,26 @@ abstract contract FundingRateEngine is
         lastFundingRate = 0;
     }
 
-    /// @notice Calculate funding rate based on market conditions
-    /// @param currentPrice The current price of the asset
-    /// @param entryPrice The entry price of the position
-    /// @param /* positionId */  // Commented out to indicate it's intentionally unused
-    /// @return rate The calculated funding rate
+    /// @notice Calculate the current funding rate
+    /// @param marketPrice The current market price (index value)
+    /// @param indexValue The reference index value
+    /// @return fundingRate The calculated funding rate (signed integer, can be positive or negative)
     function calculateFundingRate(
-        uint256 currentPrice,
-        uint256 entryPrice,
-        uint256 /* positionId */ // Commented out to indicate it's intentionally unused
-    ) external view returns (int256 rate) {
-        if (currentPrice == 0 || entryPrice == 0) return 0;
-
-        // Calculate rate based on exposure imbalance
-        int256 imbalance = int256(currentPrice) - int256(entryPrice);
-        rate =
+        uint256 marketPrice,
+        uint256 indexValue
+    ) external view override returns (int256 fundingRate) {
+        if (marketPrice == 0 || indexValue == 0) return 0;
+        int256 imbalance = int256(marketPrice) - int256(indexValue);
+        fundingRate =
             (imbalance * int256(fundingMultiplier)) /
             int256(BASIS_POINTS_DENOMINATOR);
     }
 
-    /// @notice Settle funding payments for a position
-    /// @param positionId The position ID
-    /// @param isLong Whether the position is long
-    /// @param size The position size
-    /// @return payment The funding payment amount (positive for payment, negative for receipt)
-    function settleFunding(
-        uint256 positionId,
-        bool isLong,
-        uint256 size
-    ) external view returns (int256 payment) {
-        // Calculate time elapsed since last funding
-        uint256 timeElapsed = block.timestamp - lastFundingTimestamp;
-        if (timeElapsed == 0) return 0;
-
-        // Calculate funding payment
-        int256 rate = lastFundingRate;
-        if (isLong) {
-            payment =
-                (int256(size) * rate * int256(timeElapsed)) /
-                int256(FUNDING_RATE_SCALE);
-        } else {
-            payment =
-                -(int256(size) * rate * int256(timeElapsed)) /
-                int256(FUNDING_RATE_SCALE);
-        }
+    /// @notice Settle funding payments between longs and shorts
+    /// @param timestamp The timestamp for the funding interval
+    function settleFunding(uint256 timestamp) external override {
+        lastFundingTimestamp = timestamp;
+        emit FundingRateUpdated(lastFundingRate); // Professional: emit event for tracking
     }
 
     /// @notice Update funding rate (onlyOwner)

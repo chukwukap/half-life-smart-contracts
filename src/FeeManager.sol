@@ -15,7 +15,7 @@ import {IFeeManager} from "./interfaces/IFeeManager.sol";
 /// @author Half-Life Protocol
 /// @notice Handles fee calculation and collection for the perpetual index market
 /// @dev Supports trading and liquidation fees, upgradeable and pausable
-abstract contract FeeManager is
+contract FeeManager is
     IFeeManager,
     Initializable,
     OwnableUpgradeable,
@@ -24,10 +24,6 @@ abstract contract FeeManager is
     // --- Constants ---
     uint256 private constant BASIS_POINTS_DENOMINATOR = 10_000;
 
-    // --- Events ---
-    event FeeCollected(address indexed user, uint256 amount, string feeType);
-    event FeeRateUpdated(string feeType, uint256 newRate);
-
     // --- Errors ---
     error NotAuthorized();
     error InvalidInput();
@@ -35,6 +31,7 @@ abstract contract FeeManager is
     // --- State Variables ---
     uint256 public tradingFeeRate; // in basis points
     uint256 public liquidationFeeRate; // in basis points
+    uint256 public fundingFeeRate; // in basis points
     address public feeRecipient;
 
     /// @notice Initializer for upgradeable contract
@@ -96,5 +93,41 @@ abstract contract FeeManager is
     function updateLiquidationFeeRate(uint256 newRate) external onlyOwner {
         liquidationFeeRate = newRate;
         emit FeeRateUpdated("liquidation", newRate);
+    }
+
+    /// @notice Distribute collected fees to treasury, insurance, and stakers
+    function distributeFees() external override {
+        // Minimal implementation: emit event for demonstration
+        emit FeesDistributed(0, 0, 0);
+    }
+
+    /// @notice Set fee parameters (onlyOwner or market)
+    /// @param tradingFeeBps Trading fee in basis points
+    /// @param fundingFeeBps Funding fee in basis points
+    /// @param liquidationFeeBps Liquidation fee in basis points
+    function setFeeParameters(
+        uint256 tradingFeeBps,
+        uint256 fundingFeeBps,
+        uint256 liquidationFeeBps
+    ) external override onlyOwner {
+        tradingFeeRate = tradingFeeBps;
+        fundingFeeRate = fundingFeeBps;
+        liquidationFeeRate = liquidationFeeBps;
+    }
+
+    /// @notice Get current fee parameters
+    /// @return tradingFeeBps Trading fee in basis points
+    /// @return fundingFeeBps Funding fee in basis points
+    /// @return liquidationFeeBps Liquidation fee in basis points
+    function getFeeParameters()
+        external
+        view
+        returns (
+            uint256 tradingFeeBps,
+            uint256 fundingFeeBps,
+            uint256 liquidationFeeBps
+        )
+    {
+        return (tradingFeeRate, fundingFeeRate, liquidationFeeRate);
     }
 }
