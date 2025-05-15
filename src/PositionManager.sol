@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.29;
+pragma solidity 0.8.30;
 
 // NOTE: For documentation, use explicit versioned imports in deployment scripts and documentation.
 // import {OwnableUpgradeable} from "@openzeppelin/[email protected]/access/OwnableUpgradeable.sol";
@@ -50,6 +50,88 @@ contract PositionManager is
     mapping(uint256 => Position) public positions;
     uint256 public nextPositionId;
     mapping(address => uint256[]) private userPositions;
+
+    // --- New: Funding, Solvency, and Liquidation for Uniswap v4 Hook Integration ---
+
+    /// @notice Applies funding payment to all open positions for a user
+    /// @dev Called by the Uniswap v4 hook before swap; updates margin
+    /// @param user The address of the user
+    /// @param fundingRate The funding rate to apply (signed integer)
+    /// @return totalPayment The total funding payment applied (can be negative)
+    function applyFunding(
+        address user,
+        int256 fundingRate
+    ) external whenNotPaused nonReentrant returns (int256 totalPayment) {
+        uint256[] memory openIds = this.getUserOpenPositionIds(user);
+        totalPayment = 0;
+        for (uint256 i = 0; i < openIds.length; i++) {
+            Position storage pos = positions[openIds[i]];
+            if (!pos.isOpen) continue;
+            // Funding payment = fundingRate * amount * leverage
+            int256 payment = (fundingRate *
+                int256(pos.amount) *
+                int256(pos.leverage)) / int256(BASIS_POINTS_DENOMINATOR);
+            // Update margin (can be negative)
+            if (payment != 0) {
+                if (payment < 0 && uint256(-payment) > pos.margin) {
+                    pos.margin = 0;
+                } else {
+                    pos.margin = uint256(int256(pos.margin) + payment);
+                }
+                emit MarginUpdated(openIds[i], pos.margin);
+            }
+            totalPayment += payment;
+        }
+        return totalPayment;
+    }
+
+    /// @notice Checks if all open positions for a user are solvent (above maintenance margin)
+    /// @dev Used by the Uniswap v4 hook before swap
+    /// @param user The address of the user
+    /// @return isSolvent True if all positions are solvent
+    function isSolvent(address user) external view returns (bool isSolvent) {
+        uint256[] memory openIds = this.getUserOpenPositionIds(user);
+        isSolvent = true;
+        for (uint256 i = 0; i < openIds.length; i++) {
+            Position memory pos = positions[openIds[i]];
+            if (!pos.isOpen) continue;
+            // Assume a global maintenanceMargin (set by owner)
+            uint256 maintenanceMargin = maintenanceMarginBps;
+            if (pos.margin < maintenanceMargin) {
+                isSolvent = false;
+                break;
+            }
+        }
+    }
+
+    /// @notice Liquidates all undercollateralized positions for a user
+    /// @dev Called by the Uniswap v4 hook before swap
+    /// @param user The address of the user
+    /// @return totalLoss The total loss from liquidation
+    function liquidate(
+        address user
+    ) external whenNotPaused nonReentrant returns (uint256 totalLoss) {
+        uint256[] memory openIds = this.getUserOpenPositionIds(user);
+        totalLoss = 0;
+        for (uint256 i = 0; i < openIds.length; i++) {
+            Position storage pos = positions[openIds[i]];
+            if (!pos.isOpen) continue;
+            // Assume a global maintenanceMargin (set by owner)
+            uint256 maintenanceMargin = maintenanceMarginBps;
+            if (pos.margin < maintenanceMargin) {
+                totalLoss += pos.margin;
+                pos.isOpen = false;
+                emit PositionClosed(user, openIds[i], -int256(pos.margin));
+            }
+        }
+        return totalLoss;
+    }
+
+    // --- Admin: Set global maintenance margin (basis points) ---
+    uint256 public maintenanceMarginBps;
+    function setMaintenanceMargin(uint256 marginBps) external onlyOwner {
+        maintenanceMarginBps = marginBps;
+    }
 
     /// @notice Initializer for upgradeable contract
     function initialize() external initializer {
