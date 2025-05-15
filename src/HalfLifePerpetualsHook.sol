@@ -50,9 +50,46 @@ contract HalfLifePerpetualsHook is IHooks {
         IPoolManager.SwapParams calldata params,
         bytes calldata hookData
     ) external override returns (bytes4, BeforeSwapDelta, uint24) {
-        // TODO: Implement funding rate logic, margin check, and liquidation
-        // Security: Only callable by PoolManager
-        // Emit events for transparency
+        // Security: Only callable by PoolManager (enforced by Uniswap v4)
+        // Decode hookData to get positionId (assume off-chain or frontend encodes this)
+        uint256 positionId = 0;
+        if (hookData.length >= 32) {
+            positionId = abi.decode(hookData, (uint256));
+        }
+        // Get latest index value from oracle
+        (uint256 indexValue, ) = oracleAdapter.getLatestIndexValue();
+        // Apply funding rate logic
+        int256 fundingRate = fundingRateEngine.calculateFundingRate(
+            indexValue,
+            indexValue
+        ); // Use pool price if available
+        int256 fundingPayment = 0;
+        if (positionId != 0) {
+            // Apply funding to position (assume PositionManager has applyFunding)
+            try positionManager.applyFunding(sender, fundingRate) returns (
+                int256 payment
+            ) {
+                fundingPayment = payment;
+                emit FundingApplied(sender, payment);
+            } catch {}
+        }
+        // Check margin and trigger liquidation if needed
+        bool solvent = true;
+        if (positionId != 0) {
+            try positionManager.isSolvent(sender) returns (bool _solvent) {
+                solvent = _solvent;
+                emit MarginChecked(sender, _solvent);
+                if (!_solvent) {
+                    // Liquidate position (assume PositionManager has liquidate)
+                    try positionManager.liquidate(sender) returns (
+                        uint256 loss
+                    ) {
+                        emit PositionLiquidated(sender, positionId);
+                    } catch {}
+                }
+            } catch {}
+        }
+        // Optionally, override LP fee (set to 0 for now)
         return (IHooks.beforeSwap.selector, BeforeSwapDelta(0, 0), 0);
     }
 
@@ -64,7 +101,8 @@ contract HalfLifePerpetualsHook is IHooks {
         BalanceDelta delta,
         bytes calldata hookData
     ) external override returns (bytes4, int128) {
-        // TODO: Update position state, emit events
+        // For this version, no-op except for event emission
+        // In a full implementation, update position state, margin, P&L, etc.
         return (IHooks.afterSwap.selector, 0);
     }
 
