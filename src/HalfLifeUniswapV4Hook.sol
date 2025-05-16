@@ -281,6 +281,64 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         return this.afterInitialize.selector;
     }
 
+    /// @notice Called before adding liquidity
+    function beforeAddLiquidity(
+        address sender,
+        address recipient,
+        PoolKey calldata key,
+        uint256 amount0,
+        uint256 amount1,
+        bytes calldata data
+    ) external returns (bytes4) {
+        // Validate liquidity addition
+        require(amount0 > 0 || amount1 > 0, "HalfLife: Invalid liquidity amounts");
+        _triggerFunding(sender);
+        require(pool.hasSufficientMargin(sender), "HalfLife: Insufficient margin for LP");
+        return this.beforeAddLiquidity.selector;
+    }
+
+    /// @notice Called after adding liquidity
+    function afterAddLiquidity(
+        address sender,
+        address recipient,
+        PoolKey calldata key,
+        uint256 amount0,
+        uint256 amount1,
+        bytes calldata data
+    ) external returns (bytes4) {
+        pool.settlePnL(sender);
+        return this.afterAddLiquidity.selector;
+    }
+
+    /// @notice Called before removing liquidity
+    function beforeRemoveLiquidity(
+        address sender,
+        address recipient,
+        PoolKey calldata key,
+        uint256 amount0,
+        uint256 amount1,
+        bytes calldata data
+    ) external returns (bytes4) {
+        // Validate liquidity removal
+        require(amount0 > 0 || amount1 > 0, "HalfLife: Invalid liquidity amounts");
+        _triggerFunding(sender);
+        require(pool.hasSufficientMargin(sender), "HalfLife: Insufficient margin for LP");
+        return this.beforeRemoveLiquidity.selector;
+    }
+
+    /// @notice Called after removing liquidity
+    function afterRemoveLiquidity(
+        address sender,
+        address recipient,
+        PoolKey calldata key,
+        uint256 amount0,
+        uint256 amount1,
+        bytes calldata data
+    ) external returns (bytes4) {
+        pool.settlePnL(sender);
+        return this.afterRemoveLiquidity.selector;
+    }
+
     /// @notice Called before donating to the pool
     function beforeDonate(
         address sender,
