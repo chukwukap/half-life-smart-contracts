@@ -1,54 +1,55 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.29;
+pragma solidity ^0.8.19;
 
-import {Script, console} from "forge-std/Script.sol";
-import {PerpetualIndexMarket} from "../src/PerpetualIndexMarket.sol";
-import {OracleAdapter} from "../src/OracleAdapter.sol";
-import {FundingRateEngine} from "../src/FundingRateEngine.sol";
-import {LiquidationEngine} from "../src/LiquidationEngine.sol";
-import {FeeManager} from "../src/FeeManager.sol";
+import "forge-std/Script.sol";
+import "../src/HalfLifeOracleAdapter.sol";
+import "../src/HalfLifeMarginVault.sol";
+import "../src/HalfLifePerpetualPool.sol";
+import "../src/HalfLifeUniswapV4Hook.sol";
 
 /// @title DeployScript
-/// @notice Professional deployment script for Half-Life protocol core contracts (2025)
+/// @notice Deploys all core Half-Life contracts and prints their addresses
 contract DeployScript is Script {
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
 
-        // Deploy protocol modules
-        OracleAdapter oracleAdapter = new OracleAdapter();
-        FundingRateEngine fundingRateEngine = new FundingRateEngine();
-        LiquidationEngine liquidationEngine = new LiquidationEngine();
-        FeeManager feeManager = new FeeManager();
+        // Deploy Oracle Adapter
+        HalfLifeOracleAdapter oracle = new HalfLifeOracleAdapter();
+        console.log("Oracle Adapter deployed at:", address(oracle));
 
-        // Deploy main market contract
-        PerpetualIndexMarket market = new PerpetualIndexMarket();
+        // Deploy Margin Vault
+        HalfLifeMarginVault vault = new HalfLifeMarginVault();
+        console.log("Margin Vault deployed at:", address(vault));
 
-        // Initialize protocol modules
-        oracleAdapter.initialize(address(market));
-        fundingRateEngine.initialize();
-        liquidationEngine.initialize(address(market));
-        feeManager.initialize(0.001e18, 0.001e18, 0.001e18); // 0.1% fees
-
-        // Initialize market (compliance module address removed)
-        market.initialize(
-            address(market),
-            address(fundingRateEngine),
-            address(oracleAdapter),
-            address(liquidationEngine),
-            address(feeManager),
-            1000e18, // Initial margin requirement
-            1 hours // Funding interval
+        // Deploy Perpetual Pool
+        HalfLifePerpetualPool pool = new HalfLifePerpetualPool(
+            address(oracle),
+            address(vault)
         );
+        console.log("Perpetual Pool deployed at:", address(pool));
+
+        // Deploy Uniswap Hook
+        HalfLifeUniswapV4Hook hook = new HalfLifeUniswapV4Hook(address(pool));
+        console.log("Uniswap Hook deployed at:", address(hook));
+
+        // Initialize contracts
+        vault.setPerpetualPool(address(pool));
+        pool.setHook(address(hook));
+
+        // Set initial parameters
+        oracle.updateAggregationConfig(2, 5e16, 1 hours, 7e17); // minOracles, maxDeviation, window, threshold
+        vault.updateRiskParameters(1 days, 5e16, 8e17); // cooldown, insuranceFundRatio, maxUtilizationRate
+        pool.updateRiskParameters(5e16, 1e17, 5e16, 1e17); // maintenanceMargin, liquidationFee, maxDrawdown, fundingRateCap
 
         vm.stopBroadcast();
 
-        // Log deployed addresses
-        console.log("Deployed contracts:");
-        console.log("OracleAdapter:", address(oracleAdapter));
-        console.log("FundingRateEngine:", address(fundingRateEngine));
-        console.log("LiquidationEngine:", address(liquidationEngine));
-        console.log("FeeManager:", address(feeManager));
-        console.log("PerpetualIndexMarket:", address(market));
+        // Log deployment addresses
+        console.log("\nDeployment Summary:");
+        console.log("-------------------");
+        console.log("Oracle Adapter:", address(oracle));
+        console.log("Margin Vault:", address(vault));
+        console.log("Perpetual Pool:", address(pool));
+        console.log("Uniswap Hook:", address(hook));
     }
 }
