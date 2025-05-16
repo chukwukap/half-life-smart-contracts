@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.29;
+pragma solidity 0.8.30;
 
 // Import the Uniswap v4 IHooks interface (update the import path as needed for your setup)
 import { IHooks } from "v4-core/interfaces/IHooks.sol";
 import { PoolKey } from "v4-core/types/PoolKey.sol";
+import { BalanceDelta } from "v4-core/types/BalanceDelta.sol";
+import { BalanceDeltaLibrary } from "v4-core/types/BalanceDelta.sol";
+import { IPoolManager } from "v4-core/interfaces/IPoolManager.sol";
+import { BeforeSwapDelta } from "v4-core/types/BeforeSwapDelta.sol";
+import { BeforeSwapDeltaLibrary } from "v4-core/types/BeforeSwapDelta.sol";
 import "./HalfLifePerpetualPool.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -38,50 +43,133 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     /// @notice Set the perpetual pool address and initial parameters
     /// @param _pool The address of the HalfLifePerpetualPool contract
     constructor(address _pool) Ownable(msg.sender) {
+        require(_pool != address(0), "HalfLife: Pool address cannot be zero");
         pool = HalfLifePerpetualPool(_pool);
         cooldownPeriod = 5 minutes;
     }
 
-    // ========== SWAP HOOKS ==========
+    // ========== IHooks INTERFACE IMPLEMENTATION ==========
 
-    /// @notice Called before a swap is executed in the pool
-    /// @dev Enforces margin, triggers funding, and liquidates if needed
+    // --- Initialization Hooks ---
+
+    /// @inheritdoc IHooks
+    function beforeInitialize(address, PoolKey calldata, uint160) external override returns (bytes4) {
+        // No-op for this implementation, but must return selector
+        return IHooks.beforeInitialize.selector;
+    }
+
+    /// @inheritdoc IHooks
+    function afterInitialize(address, PoolKey calldata, uint160, int24) external override returns (bytes4) {
+        // No-op for this implementation, but must return selector
+        return IHooks.afterInitialize.selector;
+    }
+
+    // --- Add Liquidity Hooks ---
+
+    /// @inheritdoc IHooks
+    function beforeAddLiquidity(
+        address sender,
+        PoolKey calldata, // key
+        IPoolManager.ModifyLiquidityParams calldata, // params
+        bytes calldata // hookData
+    ) external override nonReentrant returns (bytes4) {
+        // Security: Enforce margin and trigger funding for LP
+        _triggerFunding(sender);
+        require(pool.hasSufficientMargin(sender), "HalfLife: Insufficient margin for LP");
+        if (pool.isLiquidatable(sender)) {
+            pool.liquidate(sender);
+            emit UserLiquidated(sender, block.timestamp);
+        }
+        return IHooks.beforeAddLiquidity.selector;
+    }
+
+    /// @inheritdoc IHooks
+    function afterAddLiquidity(
+        address sender,
+        PoolKey calldata, // key
+        IPoolManager.ModifyLiquidityParams calldata, // params
+        BalanceDelta, // delta
+        BalanceDelta, // feesAccrued
+        bytes calldata // hookData
+    ) external override nonReentrant returns (bytes4, BalanceDelta) {
+        // Security: Settle PnL for sender
+        pool.settlePnL(sender);
+        // Return selector and zero delta (no additional token movement)
+        return (IHooks.afterAddLiquidity.selector, BalanceDeltaLibrary.ZERO_DELTA);
+    }
+
+    // --- Remove Liquidity Hooks ---
+
+    /// @inheritdoc IHooks
+    function beforeRemoveLiquidity(
+        address sender,
+        PoolKey calldata, // key
+        IPoolManager.ModifyLiquidityParams calldata, // params
+        bytes calldata // hookData
+    ) external override nonReentrant returns (bytes4) {
+        // Security: Enforce margin and trigger funding for LP
+        _triggerFunding(sender);
+        require(pool.hasSufficientMargin(sender), "HalfLife: Insufficient margin for LP");
+        if (pool.isLiquidatable(sender)) {
+            pool.liquidate(sender);
+            emit UserLiquidated(sender, block.timestamp);
+        }
+        return IHooks.beforeRemoveLiquidity.selector;
+    }
+
+    /// @inheritdoc IHooks
+    function afterRemoveLiquidity(
+        address sender,
+        PoolKey calldata, // key
+        IPoolManager.ModifyLiquidityParams calldata, // params
+        BalanceDelta, // delta
+        BalanceDelta, // feesAccrued
+        bytes calldata // hookData
+    ) external override nonReentrant returns (bytes4, BalanceDelta) {
+        // Security: Settle PnL for sender
+        pool.settlePnL(sender);
+        // Return selector and zero delta (no additional token movement)
+        return (IHooks.afterRemoveLiquidity.selector, BalanceDeltaLibrary.ZERO_DELTA);
+    }
+
+    // --- Swap Hooks ---
+
+    /// @inheritdoc IHooks
     function beforeSwap(
         address sender,
-        address recipient,
-        int256 amount0,
-        int256 amount1,
-        bytes calldata data
-    ) external nonReentrant {
+        PoolKey calldata, // key
+        IPoolManager.SwapParams calldata params,
+        bytes calldata // hookData
+    ) external override nonReentrant returns (bytes4, BeforeSwapDelta, uint24) {
         // 1. Check cooldown period
         require(block.timestamp >= lastTradeTimestamp[sender] + cooldownPeriod, "HalfLife: Cooldown period active");
 
         // 2. Check flash loan attack
-        _checkFlashLoan(sender, amount0);
+        _checkFlashLoan(sender, params.amountSpecified);
 
         // 3. Update volume tracking
-        totalVolume24h[sender] += uint256(amount0 > 0 ? amount0 : -amount0);
+        totalVolume24h[sender] += uint256(
+            params.amountSpecified > 0 ? params.amountSpecified : -params.amountSpecified
+        );
 
         // 4. Check position size limits
-        int256 newSize = pool.positions(sender).size + amount0;
+        (int256 currentSize, uint256 margin, , ) = pool.positions(sender);
+        int256 newSize = currentSize + params.amountSpecified;
         require(uint256(newSize > 0 ? newSize : -newSize) <= maxPositionSize, "HalfLife: Position size too large");
         require(uint256(newSize > 0 ? newSize : -newSize) >= minPositionSize, "HalfLife: Position size too small");
 
         // 5. Check leverage limits
-        uint256 margin = pool.positions(sender).margin;
         uint256 notional = (uint256(newSize > 0 ? newSize : -newSize) * pool.oracle().latestTLI()) / 1e18;
+        require(margin > 0, "HalfLife: Margin must be positive");
         require((notional * 1e18) / margin <= maxLeverage, "HalfLife: Leverage too high");
 
         // 6. Check price impact
         uint256 currentPrice = _getCurrentPrice();
-        uint256 priceImpact = _calculatePriceImpact(currentPrice, amount0);
+        uint256 priceImpact = _calculatePriceImpact(currentPrice, params.amountSpecified);
         require(priceImpact <= maxPriceImpact, "HalfLife: Price impact too high");
 
-        // 7. Trigger funding payment for sender and recipient
+        // 7. Trigger funding payment for sender
         _triggerFunding(sender);
-        if (recipient != sender) {
-            _triggerFunding(recipient);
-        }
 
         // 8. Check margin for sender (trader)
         require(pool.hasSufficientMargin(sender), "HalfLife: Insufficient margin");
@@ -95,22 +183,24 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         // 10. Update last trade timestamp and price
         lastTradeTimestamp[sender] = block.timestamp;
         lastTradePrice[sender] = currentPrice;
+
+        // Return selector, no delta, and no fee override
+        return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
-    /// @notice Called after a swap is executed in the pool
-    /// @dev Settle PnL and update position for sender
+    /// @inheritdoc IHooks
     function afterSwap(
         address sender,
-        address recipient,
-        int256 amount0,
-        int256 amount1,
-        bytes calldata data
-    ) external nonReentrant {
+        PoolKey calldata, // key
+        IPoolManager.SwapParams calldata, // params
+        BalanceDelta, // delta
+        bytes calldata // hookData
+    ) external override nonReentrant returns (bytes4, int128) {
         // 1. Settle PnL for sender
         pool.settlePnL(sender);
 
         // 2. Update position tracking
-        int256 newSize = pool.positions(sender).size;
+        (int256 newSize, , , ) = pool.positions(sender);
         emit PositionSizeUpdated(sender, newSize);
 
         // 3. Reset volume tracking if 24h passed
@@ -120,67 +210,35 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
 
         // 4. Update TWAP
         _updateTWAP();
+
+        // Return selector and zero delta
+        return (IHooks.afterSwap.selector, 0);
     }
 
-    // ========== LIQUIDITY HOOKS ==========
+    // --- Donate Hooks ---
 
-    /// @notice Called before liquidity is added to the pool
-    /// @dev Enforces margin and triggers funding for LP
-    function beforeAddLiquidity(
-        address sender,
-        address recipient,
-        int24 tickLower,
-        int24 tickUpper,
-        uint128 amount,
-        bytes calldata data
-    ) external nonReentrant {
-        _triggerFunding(sender);
-        require(pool.hasSufficientMargin(sender), "HalfLife: Insufficient margin for LP");
-        if (pool.isLiquidatable(sender)) {
-            pool.liquidate(sender);
-            emit UserLiquidated(sender, block.timestamp);
-        }
+    /// @inheritdoc IHooks
+    function beforeDonate(
+        address, // sender
+        PoolKey calldata, // key
+        uint256, // amount0
+        uint256, // amount1
+        bytes calldata // hookData
+    ) external override returns (bytes4) {
+        // No-op for this implementation, but must return selector
+        return IHooks.beforeDonate.selector;
     }
 
-    /// @notice Called after liquidity is added to the pool
-    function afterAddLiquidity(
-        address sender,
-        address recipient,
-        int24 tickLower,
-        int24 tickUpper,
-        uint128 amount,
-        bytes calldata data
-    ) external nonReentrant {
-        pool.settlePnL(sender);
-    }
-
-    /// @notice Called before liquidity is removed from the pool
-    function beforeRemoveLiquidity(
-        address sender,
-        address recipient,
-        int24 tickLower,
-        int24 tickUpper,
-        uint128 amount,
-        bytes calldata data
-    ) external nonReentrant {
-        _triggerFunding(sender);
-        require(pool.hasSufficientMargin(sender), "HalfLife: Insufficient margin for LP");
-        if (pool.isLiquidatable(sender)) {
-            pool.liquidate(sender);
-            emit UserLiquidated(sender, block.timestamp);
-        }
-    }
-
-    /// @notice Called after liquidity is removed from the pool
-    function afterRemoveLiquidity(
-        address sender,
-        address recipient,
-        int24 tickLower,
-        int24 tickUpper,
-        uint128 amount,
-        bytes calldata data
-    ) external nonReentrant {
-        pool.settlePnL(sender);
+    /// @inheritdoc IHooks
+    function afterDonate(
+        address, // sender
+        PoolKey calldata, // key
+        uint256, // amount0
+        uint256, // amount1
+        bytes calldata // hookData
+    ) external override returns (bytes4) {
+        // No-op for this implementation, but must return selector
+        return IHooks.afterDonate.selector;
     }
 
     // ========== ADMIN FUNCTIONS ==========
@@ -234,11 +292,13 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     function _calculatePriceImpact(uint256 currentPrice, int256 amount) internal view returns (uint256) {
         if (amount == 0) return 0;
         uint256 absAmount = uint256(amount > 0 ? amount : -amount);
+        // FIX: Prevent division by zero
+        if (currentPrice == 0) return type(uint256).max;
         return (absAmount * 1e18) / (currentPrice * 1e18);
     }
 
     /// @dev Check for flash loan attacks
-    function _checkFlashLoan(address user, int256 amount) internal {
+    function _checkFlashLoan(address user, int256 /*amount*/) internal {
         uint256 currentTime = block.timestamp;
         uint256 lastTrade = lastTradeTimestamp[user];
 
@@ -259,110 +319,5 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         // Implementation would depend on specific TWAP calculation requirements
         // This is a placeholder for the actual implementation
         emit TWAPUpdated(_getCurrentPrice(), block.timestamp);
-    }
-
-    // ========== ADDITIONAL HOOK IMPLEMENTATIONS ==========
-
-    /// @notice Called before pool initialization
-    function beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96) external returns (bytes4) {
-        // Only allow pool initialization by owner
-        require(sender == owner(), "HalfLife: Only owner can initialize");
-        return this.beforeInitialize.selector;
-    }
-
-    /// @notice Called after pool initialization
-    function afterInitialize(
-        address sender,
-        PoolKey calldata key,
-        uint160 sqrtPriceX96,
-        int24 tick
-    ) external returns (bytes4) {
-        // Additional initialization logic if needed
-        return this.afterInitialize.selector;
-    }
-
-    /// @notice Called before adding liquidity
-    function beforeAddLiquidity(
-        address sender,
-        address recipient,
-        PoolKey calldata key,
-        uint256 amount0,
-        uint256 amount1,
-        bytes calldata data
-    ) external returns (bytes4) {
-        // Validate liquidity addition
-        require(amount0 > 0 || amount1 > 0, "HalfLife: Invalid liquidity amounts");
-        _triggerFunding(sender);
-        require(pool.hasSufficientMargin(sender), "HalfLife: Insufficient margin for LP");
-        return this.beforeAddLiquidity.selector;
-    }
-
-    /// @notice Called after adding liquidity
-    function afterAddLiquidity(
-        address sender,
-        address recipient,
-        PoolKey calldata key,
-        uint256 amount0,
-        uint256 amount1,
-        bytes calldata data
-    ) external returns (bytes4) {
-        pool.settlePnL(sender);
-        return this.afterAddLiquidity.selector;
-    }
-
-    /// @notice Called before removing liquidity
-    function beforeRemoveLiquidity(
-        address sender,
-        address recipient,
-        PoolKey calldata key,
-        uint256 amount0,
-        uint256 amount1,
-        bytes calldata data
-    ) external returns (bytes4) {
-        // Validate liquidity removal
-        require(amount0 > 0 || amount1 > 0, "HalfLife: Invalid liquidity amounts");
-        _triggerFunding(sender);
-        require(pool.hasSufficientMargin(sender), "HalfLife: Insufficient margin for LP");
-        return this.beforeRemoveLiquidity.selector;
-    }
-
-    /// @notice Called after removing liquidity
-    function afterRemoveLiquidity(
-        address sender,
-        address recipient,
-        PoolKey calldata key,
-        uint256 amount0,
-        uint256 amount1,
-        bytes calldata data
-    ) external returns (bytes4) {
-        pool.settlePnL(sender);
-        return this.afterRemoveLiquidity.selector;
-    }
-
-    /// @notice Called before donating to the pool
-    function beforeDonate(
-        address sender,
-        address recipient,
-        PoolKey calldata key,
-        uint256 amount0,
-        uint256 amount1,
-        bytes calldata data
-    ) external returns (bytes4) {
-        // Validate donation parameters
-        require(amount0 > 0 || amount1 > 0, "HalfLife: Invalid donation amounts");
-        return this.beforeDonate.selector;
-    }
-
-    /// @notice Called after donating to the pool
-    function afterDonate(
-        address sender,
-        address recipient,
-        PoolKey calldata key,
-        uint256 amount0,
-        uint256 amount1,
-        bytes calldata data
-    ) external returns (bytes4) {
-        // Additional post-donation logic if needed
-        return this.afterDonate.selector;
     }
 }

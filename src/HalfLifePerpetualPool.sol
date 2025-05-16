@@ -44,6 +44,9 @@ contract HalfLifePerpetualPool is ReentrancyGuard, Ownable {
     bool public circuitBreaker;
     uint256 public maxDrawdown = 0.2e18; // 20% max drawdown
 
+    // Add a setHook function to allow setting the hook address
+    address public hook;
+
     event PositionOpened(address indexed user, int256 size, uint256 entryTLI, uint256 margin, uint256 fee);
     event PositionClosed(address indexed user, int256 size, int256 pnl, uint256 exitTLI, uint256 fee);
     event FundingPaid(address indexed user, int256 fundingAmount);
@@ -179,8 +182,8 @@ contract HalfLifePerpetualPool is ReentrancyGuard, Ownable {
 
         // Maintenance margin check
         uint256 notional = (uint256(pos.size > 0 ? pos.size : -pos.size) * tli) / 1e18;
-        uint256 minMargin = (notional * maintenanceMarginRatio) / 1e18;
-        require(payout < minMargin, "Not eligible for liquidation");
+        uint256 minMarginRequired = (notional * maintenanceMarginRatio) / 1e18; // Renamed to avoid shadowing state variable
+        require(payout < minMarginRequired, "Not eligible for liquidation");
 
         // Calculate liquidation fee (50% of remaining margin)
         uint256 liquidationFee = payout / 2;
@@ -212,6 +215,10 @@ contract HalfLifePerpetualPool is ReentrancyGuard, Ownable {
         pos.margin = pnl > 0 ? pos.margin + uint256(pnl) : pos.margin;
     }
 
+    /// @notice Checks if the user has sufficient margin to maintain their position.
+    /// @dev Avoids shadowing the state variable `minMargin` by using a different local variable name.
+    /// @param user The address of the user to check.
+    /// @return True if the user has sufficient margin, false otherwise.
     function hasSufficientMargin(address user) public view returns (bool) {
         Position storage pos = positions[user];
         if (pos.size == 0) return true;
@@ -222,11 +229,16 @@ contract HalfLifePerpetualPool is ReentrancyGuard, Ownable {
         pnl -= funding;
 
         uint256 notional = (uint256(pos.size > 0 ? pos.size : -pos.size) * tli) / 1e18;
-        uint256 minMargin = (notional * maintenanceMarginRatio) / 1e18;
+        uint256 minMarginRequired = (notional * maintenanceMarginRatio) / 1e18; // Renamed to avoid shadowing
 
-        return pos.margin + (pnl > 0 ? uint256(pnl) : 0) >= minMargin;
+        // Security: Only positive PnL is added to margin for this check
+        return pos.margin + (pnl > 0 ? uint256(pnl) : 0) >= minMarginRequired;
     }
 
+    /// @notice Checks if the user's position is eligible for liquidation.
+    /// @dev Avoids shadowing the state variable `minMargin` by using a different local variable name.
+    /// @param user The address of the user to check.
+    /// @return True if the position is liquidatable, false otherwise.
     function isLiquidatable(address user) public view returns (bool) {
         Position storage pos = positions[user];
         if (pos.size == 0) return false;
@@ -237,9 +249,10 @@ contract HalfLifePerpetualPool is ReentrancyGuard, Ownable {
         pnl -= funding;
 
         uint256 notional = (uint256(pos.size > 0 ? pos.size : -pos.size) * tli) / 1e18;
-        uint256 minMargin = (notional * maintenanceMarginRatio) / 1e18;
+        uint256 minMarginRequired = (notional * maintenanceMarginRatio) / 1e18; // Renamed to avoid shadowing
 
-        return pos.margin + (pnl > 0 ? uint256(pnl) : 0) < minMargin;
+        // Security: Only positive PnL is added to margin for this check
+        return pos.margin + (pnl > 0 ? uint256(pnl) : 0) < minMarginRequired;
     }
 
     function hasOpenPosition(address user) public view returns (bool) {
@@ -275,5 +288,11 @@ contract HalfLifePerpetualPool is ReentrancyGuard, Ownable {
         require(circuitBreaker, "Circuit breaker not active");
         circuitBreaker = false;
         emit CircuitBreakerReset(block.timestamp);
+    }
+
+    // Add a setHook function to allow setting the hook address
+    function setHook(address _hook) external onlyOwner {
+        require(_hook != address(0), "Invalid hook address");
+        hook = _hook;
     }
 }
