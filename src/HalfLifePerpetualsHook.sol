@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.29;
 
-import {IHooks} from "../lib/v4-core/src/interfaces/IHooks.sol";
-import {PoolKey} from "../lib/v4-core/src/types/PoolKey.sol";
-import {BalanceDelta} from "../lib/v4-core/src/types/BalanceDelta.sol";
-import {IPoolManager} from "../lib/v4-core/src/interfaces/IPoolManager.sol";
-import {BeforeSwapDelta} from "../lib/v4-core/src/types/BeforeSwapDelta.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {BeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 
 // Import protocol modules
 import {IPositionManager} from "./interfaces/IPositionManager.sol";
