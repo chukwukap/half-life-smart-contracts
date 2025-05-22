@@ -5,10 +5,11 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "./interfaces/IHalfLifeMarginVault.sol";
 
 /// @title HalfLifeMarginVault
 /// @notice Manages user collateral (e.g., USDC), margin, and liquidations.
-contract HalfLifeMarginVault is ReentrancyGuard, Ownable {
+contract HalfLifeMarginVault is ReentrancyGuard, Ownable, IHalfLifeMarginVault {
     using Math for uint256;
 
     struct UserState {
@@ -65,10 +66,10 @@ contract HalfLifeMarginVault is ReentrancyGuard, Ownable {
         // Initialize primary collateral config
         collateralConfigs[_primaryCollateral] = CollateralConfig({
             isActive: true,
-            minDeposit: 100e18,
-            maxDeposit: 1000000e18,
-            depositFee: 0.001e18,
-            withdrawalFee: 0.001e18,
+            minDeposit: 100e18, // 100 USDC
+            maxDeposit: 1000000e18, // 1,000,000 USDC
+            depositFee: 0.001e18, // 0.1%
+            withdrawalFee: 0.001e18, // 0.1%
             priceDecimals: 18,
             lastUpdateTime: block.timestamp,
             price: 1e18

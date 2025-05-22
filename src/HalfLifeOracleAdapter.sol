@@ -3,10 +3,11 @@ pragma solidity 0.8.29;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "./interfaces/IHalfLifeOracleAdapter.sol";
 
 /// @title HalfLifeOracleAdapter
 /// @notice Stores the latest Token Lifespan Index (TLI) value for a token, updatable only by a trusted oracle.
-contract HalfLifeOracleAdapter is Ownable, ReentrancyGuard {
+contract HalfLifeOracleAdapter is Ownable, ReentrancyGuard, IHalfLifeOracleAdapter {
     struct OracleState {
         uint256 latestTLI;
         uint256 lastUpdate;
@@ -46,27 +47,6 @@ contract HalfLifeOracleAdapter is Ownable, ReentrancyGuard {
     bool public circuitBreaker;
     uint256 public lastCircuitBreakerTime;
     uint256 public circuitBreakerCooldown = 1 hours;
-
-    // Events
-    event OracleAdded(address indexed oracle, uint256 heartbeat, uint256 deviationThreshold);
-    event OracleRemoved(address indexed oracle);
-    event OracleUpdated(address indexed oracle, uint256 heartbeat, uint256 deviationThreshold);
-    event TLIUpdated(uint256 indexed newTLI, uint256 timestamp, address indexed oracle);
-    event CircuitBreakerTriggered(uint256 timestamp);
-    event CircuitBreakerReset(uint256 timestamp);
-    event StateUpdated(uint256 heartbeat, uint256 deviationThreshold, uint256 minValidTLI, uint256 maxValidTLI);
-    event OracleReputationUpdated(
-        address indexed oracle,
-        uint256 newReputation,
-        uint256 totalUpdates,
-        uint256 successfulUpdates
-    );
-    event AggregationConfigUpdated(
-        uint256 minOracles,
-        uint256 maxDeviation,
-        uint256 aggregationWindow,
-        uint256 reputationThreshold
-    );
 
     constructor() Ownable(msg.sender) {
         state.heartbeat = 1 hours;
