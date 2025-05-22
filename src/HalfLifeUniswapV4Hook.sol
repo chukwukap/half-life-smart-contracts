@@ -338,10 +338,8 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     }
     /// @dev Enforce oracle data is fresh
     function _enforceOracleFresh() internal view {
-        uint256 lastUpdate = oracle.state().lastUpdate;
-        uint256 heartbeat = oracle.state().heartbeat;
+        (, , uint256 lastUpdate, uint256 heartbeat, , ) = oracle.getState();
         if (block.timestamp > lastUpdate + heartbeat) {
-            emit OracleStale(lastUpdate, heartbeat);
             revert("Oracle data is stale");
         }
     }

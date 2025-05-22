@@ -11,12 +11,6 @@ interface IHalfLifeMarginVault {
     function insuranceFundRatio() external view returns (uint256);
     function maxUtilizationRate() external view returns (uint256);
     function isBlacklisted(address user) external view returns (bool);
-    function collateralConfigs(
-        address token
-    )
-        external
-        view
-        returns (uint256 minDeposit, uint256 maxDeposit, uint256 depositFee, uint256 withdrawalFee, bool isWhitelisted);
 
     // State changing functions
     function deposit(address token, uint256 amount) external;
@@ -37,6 +31,7 @@ interface IHalfLifeMarginVault {
         uint256 _depositFee,
         uint256 _withdrawalFee
     ) external;
+    function transfer(address to, uint256 amount) external;
 
     // // Events
     // event Deposit(address indexed user, address indexed token, uint256 amount, uint256 fee);
@@ -70,4 +65,21 @@ interface IHalfLifeMarginVault {
     );
     event UtilizationRateUpdated(uint256 newRate);
     event DynamicFeeUpdated(uint256 newMultiplier);
+
+    // Explicit getter for CollateralConfig struct
+    function getCollateralConfig(
+        address token
+    )
+        external
+        view
+        returns (
+            bool isActive,
+            uint256 minDeposit,
+            uint256 maxDeposit,
+            uint256 depositFee,
+            uint256 withdrawalFee,
+            uint256 priceDecimals,
+            uint256 lastUpdateTime,
+            uint256 price
+        );
 }

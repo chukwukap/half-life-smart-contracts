@@ -51,7 +51,7 @@ contract HalfLifeMarginVault is ReentrancyGuard, Ownable, IHalfLifeMarginVault {
     uint256 public dynamicFeeMultiplier = 1e18;
 
     mapping(address => UserState) public userStates;
-    mapping(address => CollateralConfig) public collateralConfigs;
+    mapping(address => CollateralConfig) private collateralConfigs;
     mapping(address => bool) public whitelistedTokens;
 
     modifier onlyPerpetualPool() {
@@ -217,26 +217,20 @@ contract HalfLifeMarginVault is ReentrancyGuard, Ownable, IHalfLifeMarginVault {
         uint256 _minDeposit,
         uint256 _maxDeposit,
         uint256 _depositFee,
-        uint256 _withdrawalFee,
-        uint256 _priceDecimals,
-        uint256 _price
+        uint256 _withdrawalFee
     ) external onlyOwner {
         require(whitelistedTokens[token], "Token not whitelisted");
         require(_minDeposit > 0, "Invalid min deposit");
         require(_maxDeposit > _minDeposit, "Invalid max deposit");
         require(_depositFee <= 0.01e18, "Deposit fee too high");
         require(_withdrawalFee <= 0.01e18, "Withdrawal fee too high");
-        require(_priceDecimals <= 18, "Invalid decimals");
-        require(_price > 0, "Invalid price");
 
         CollateralConfig storage config = collateralConfigs[token];
         config.minDeposit = _minDeposit;
         config.maxDeposit = _maxDeposit;
         config.depositFee = _depositFee;
         config.withdrawalFee = _withdrawalFee;
-        config.priceDecimals = _priceDecimals;
         config.lastUpdateTime = block.timestamp;
-        config.price = _price;
 
         emit CollateralConfigUpdated(token, _minDeposit, _maxDeposit, _depositFee, _withdrawalFee);
     }
@@ -286,5 +280,39 @@ contract HalfLifeMarginVault is ReentrancyGuard, Ownable, IHalfLifeMarginVault {
         }
         lastUtilizationUpdate = block.timestamp;
         emit UtilizationRateUpdated(utilizationRate);
+    }
+
+    /// @notice Explicit getter for CollateralConfig struct to match interface
+    function getCollateralConfig(
+        address token
+    )
+        external
+        view
+        returns (
+            bool isActive,
+            uint256 minDeposit,
+            uint256 maxDeposit,
+            uint256 depositFee,
+            uint256 withdrawalFee,
+            uint256 priceDecimals,
+            uint256 lastUpdateTime,
+            uint256 price
+        )
+    {
+        CollateralConfig storage c = collateralConfigs[token];
+        return (
+            c.isActive,
+            c.minDeposit,
+            c.maxDeposit,
+            c.depositFee,
+            c.withdrawalFee,
+            c.priceDecimals,
+            c.lastUpdateTime,
+            c.price
+        );
+    }
+
+    function isBlacklisted(address user) external view returns (bool) {
+        return userStates[user].isBlacklisted;
     }
 }

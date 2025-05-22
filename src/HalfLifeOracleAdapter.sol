@@ -38,7 +38,7 @@ contract HalfLifeOracleAdapter is Ownable, ReentrancyGuard, IHalfLifeOracleAdapt
         uint256 reputationThreshold;
     }
 
-    OracleState public state;
+    OracleState private state;
     mapping(address => OracleConfig) public oracles;
     address[] public oracleList;
     AggregationConfig public aggregationConfig;
@@ -280,5 +280,44 @@ contract HalfLifeOracleAdapter is Ownable, ReentrancyGuard, IHalfLifeOracleAdapt
             lastCircuitBreakerTime = block.timestamp;
             emit CircuitBreakerTriggered(block.timestamp);
         }
+    }
+
+    /// @notice Explicit getter for OracleState struct to match interface
+    function getState()
+        external
+        view
+        returns (
+            uint256 latestTLI,
+            uint256 lastUpdate,
+            uint256 heartbeat,
+            uint256 deviationThreshold,
+            uint256 minValidTLI,
+            uint256 maxValidTLI
+        )
+    {
+        OracleState storage s = state;
+        return (s.latestTLI, s.lastUpdate, s.heartbeat, s.deviationThreshold, s.minValidTLI, s.maxValidTLI);
+    }
+
+    /// @notice Explicit getter for OracleConfig struct to match interface
+    function getOracle(
+        address oracleAddr
+    ) external view returns (address, bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256) {
+        OracleConfig storage o = oracles[oracleAddr];
+        return (
+            o.oracle,
+            o.isActive,
+            o.lastUpdate,
+            o.heartbeat,
+            o.deviationThreshold,
+            o.reputation,
+            o.totalUpdates,
+            o.successfulUpdates,
+            o.lastDeviation
+        );
+    }
+
+    function lastUpdate() external view returns (uint256) {
+        return state.lastUpdate;
     }
 }

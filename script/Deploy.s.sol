@@ -18,11 +18,12 @@ contract DeployScript is Script {
         console.log("Oracle Adapter deployed at:", address(oracle));
 
         // Deploy Margin Vault
-        HalfLifeMarginVault vault = new HalfLifeMarginVault();
+        // TODO: Replace address(0x1234567890123456789012345678901234567890) with actual collateral token address
+        HalfLifeMarginVault vault = new HalfLifeMarginVault(address(0x1234567890123456789012345678901234567890));
         console.log("Margin Vault deployed at:", address(vault));
 
         // Deploy Uniswap Hook
-        HalfLifeUniswapV4Hook hook = new HalfLifeUniswapV4Hook(address(vault));
+        HalfLifeUniswapV4Hook hook = new HalfLifeUniswapV4Hook(address(vault), address(oracle));
         console.log("Uniswap Hook deployed at:", address(hook));
 
         // Initialize contracts
