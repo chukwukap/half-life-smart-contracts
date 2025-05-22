@@ -4,7 +4,6 @@ pragma solidity 0.8.29;
 import "forge-std/Script.sol";
 import "../src/HalfLifeOracleAdapter.sol";
 import "../src/HalfLifeMarginVault.sol";
-import "../src/HalfLifePerpetualPool.sol";
 import "../src/HalfLifeUniswapV4Hook.sol";
 
 /// @title DeployScript
@@ -22,22 +21,18 @@ contract DeployScript is Script {
         HalfLifeMarginVault vault = new HalfLifeMarginVault();
         console.log("Margin Vault deployed at:", address(vault));
 
-        // Deploy Perpetual Pool
-        HalfLifePerpetualPool pool = new HalfLifePerpetualPool(address(oracle), address(vault));
-        console.log("Perpetual Pool deployed at:", address(pool));
-
         // Deploy Uniswap Hook
-        HalfLifeUniswapV4Hook hook = new HalfLifeUniswapV4Hook(address(pool));
+        HalfLifeUniswapV4Hook hook = new HalfLifeUniswapV4Hook(address(vault));
         console.log("Uniswap Hook deployed at:", address(hook));
 
         // Initialize contracts
-        vault.setPerpetualPool(address(pool));
-        pool.setHook(address(hook));
+        vault.setPerpetualPool(address(vault));
+        hook.setVault(address(vault));
 
         // Set initial parameters
         oracle.updateAggregationConfig(2, 5e16, 1 hours, 7e17); // minOracles, maxDeviation, window, threshold
         vault.updateRiskParameters(1 days, 5e16, 8e17); // cooldown, insuranceFundRatio, maxUtilizationRate
-        pool.updateRiskParameters(5e16, 1e17, 5e16, 1e17); // maintenanceMargin, liquidationFee, maxDrawdown, fundingRateCap
+        hook.updateRiskParameters(5e16, 1e17, 5e16, 1e17); // maintenanceMargin, liquidationFee, maxDrawdown, fundingRateCap
 
         vm.stopBroadcast();
 
@@ -46,7 +41,6 @@ contract DeployScript is Script {
         console.log("-------------------");
         console.log("Oracle Adapter:", address(oracle));
         console.log("Margin Vault:", address(vault));
-        console.log("Perpetual Pool:", address(pool));
         console.log("Uniswap Hook:", address(hook));
     }
 }

@@ -53,7 +53,7 @@ The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uni
 - Deposits collateral (e.g., USDC) into the Margin Vault.
 - Opens/closes long or short positions via the dApp.
 - Monitors positions, margin, and PnL.
-
+****
 ### 3.2. Frontend dApp
 
 - Provides UI for all user actions.
