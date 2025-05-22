@@ -10,7 +10,8 @@ import "../src/HalfLifeUniswapV4Hook.sol";
 /// @notice Deploys all core Half-Life contracts and prints their addresses
 contract DeployScript is Script {
     function run() external {
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        // WARNING: Hardcoded private key for local Anvil only. DO NOT USE IN PRODUCTION.
+        uint256 deployerPrivateKey = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
         vm.startBroadcast(deployerPrivateKey);
 
         // Deploy Oracle Adapter
