@@ -10,15 +10,15 @@ import { BeforeSwapDelta } from "v4-core/types/BeforeSwapDelta.sol";
 import { BeforeSwapDeltaLibrary } from "v4-core/types/BeforeSwapDelta.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./HalfLifeMarginVault.sol";
-import "./HalfLifeOracleAdapter.sol";
+import "./interfaces/IHalfLifeMarginVault.sol";
+import "./interfaces/IHalfLifeOracleAdapter.sol";
 
 /// @title HalfLifeUniswapV4Hook
 /// @notice Uniswap v4 hook for Half-Life perpetual index betting flywheel.
 /// @dev Implements all relevant hooks for margin, funding, PnL, and liquidation logic.
 contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
-    HalfLifeMarginVault public vault;
-    HalfLifeOracleAdapter public oracle;
+    IHalfLifeMarginVault public vault;
+    IHalfLifeOracleAdapter public oracle;
 
     // Protocol-specific state
     mapping(address => int256) public userPosition; // positive = long, negative = short
@@ -30,48 +30,65 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     uint256 public cooldownPeriod = 5 minutes;
     uint256 public minMargin = 100e18;
     uint256 public maxLeverage = 10e18;
+    uint256 public maxPositionSize = 1000000e18; // 1 million
     uint256 public maxPriceImpact = 0.05e18;
     uint256 public twapPeriod = 30 minutes;
     uint256 public maintenanceMarginRatio = 0.1e18; // 10%
     uint256 public fundingInterval = 1 hours;
     uint256 public lastFundingTime;
     uint256 public fundingRateCap = 0.01e18; // 1% per interval
+    uint256 public minValidTLI = 0.1e18;
+    uint256 public maxValidTLI = 10e18;
+
+    // Funding state
+    int256 public globalFundingRate; // signed, can be positive or negative
+    uint256 public lastFundingTLI;
 
     event UserLiquidated(address indexed user, uint256 timestamp);
     event PositionOpened(address indexed user, int256 size, uint256 entryTLI);
     event PositionClosed(address indexed user, int256 size, int256 pnl, uint256 exitTLI);
     event FundingPaid(address indexed user, int256 fundingAmount);
-    event RiskParametersUpdated(uint256 minMargin, uint256 maxLeverage, uint256 maxPriceImpact);
+    event RiskParametersUpdated(
+        uint256 minMargin,
+        uint256 maxLeverage,
+        uint256 maxPositionSize,
+        uint256 maxPriceImpact
+    );
     event TWAPUpdated(uint256 newTWAP, uint256 timestamp);
     event FlashLoanDetected(address indexed user, uint256 timestamp);
+    event OracleStale(uint256 lastUpdate, uint256 heartbeat);
 
     constructor(address _vault, address _oracle) Ownable(msg.sender) {
-        vault = HalfLifeMarginVault(_vault);
-        oracle = HalfLifeOracleAdapter(_oracle);
+        vault = IHalfLifeMarginVault(_vault);
+        oracle = IHalfLifeOracleAdapter(_oracle);
         lastFundingTime = block.timestamp;
+        lastFundingTLI = 1e18; // initialize to 1 for safety
     }
 
     // ========== ADMIN FUNCTIONS ==========
     function setVault(address _vault) external onlyOwner {
         require(_vault != address(0), "Invalid vault");
-        vault = HalfLifeMarginVault(_vault);
+        vault = IHalfLifeMarginVault(_vault);
     }
     function setOracle(address _oracle) external onlyOwner {
         require(_oracle != address(0), "Invalid oracle");
-        oracle = HalfLifeOracleAdapter(_oracle);
+        oracle = IHalfLifeOracleAdapter(_oracle);
     }
     function updateRiskParameters(
         uint256 _minMargin,
         uint256 _maxLeverage,
+        uint256 _maxPositionSize,
         uint256 _maxPriceImpact
     ) external onlyOwner {
         require(_minMargin > 0, "Invalid minMargin");
         require(_maxLeverage > 0, "Invalid maxLeverage");
+        require(_maxPositionSize > 0, "Invalid maxPositionSize");
         require(_maxPriceImpact <= 0.1e18, "Price impact too high");
         minMargin = _minMargin;
         maxLeverage = _maxLeverage;
+        maxPositionSize = _maxPositionSize;
         maxPriceImpact = _maxPriceImpact;
-        emit RiskParametersUpdated(_minMargin, _maxLeverage, _maxPriceImpact);
+        emit RiskParametersUpdated(_minMargin, _maxLeverage, _maxPositionSize, _maxPriceImpact);
     }
     function updateCooldownPeriod(uint256 _cooldownPeriod) external onlyOwner {
         require(_cooldownPeriod <= 1 hours, "Cooldown too long");
@@ -100,6 +117,7 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     ) external override nonReentrant returns (bytes4) {
         _enforceCooldown(sender);
         _enforceMargin(sender);
+        require(!isLiquidated[sender], "User is liquidated");
         return IHooks.beforeAddLiquidity.selector;
     }
     function afterAddLiquidity(
@@ -110,7 +128,6 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         BalanceDelta,
         bytes calldata
     ) external override nonReentrant returns (bytes4, BalanceDelta) {
-        // Settle funding, update state if needed
         _updateTWAP();
         return (IHooks.afterAddLiquidity.selector, BalanceDeltaLibrary.ZERO_DELTA);
     }
@@ -124,6 +141,7 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     ) external override nonReentrant returns (bytes4) {
         _enforceCooldown(sender);
         _enforceMargin(sender);
+        require(!isLiquidated[sender], "User is liquidated");
         return IHooks.beforeRemoveLiquidity.selector;
     }
     function afterRemoveLiquidity(
@@ -149,6 +167,10 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         _enforceMargin(sender);
         _checkFlashLoan(sender);
         require(!isLiquidated[sender], "User is liquidated");
+        _enforceOracleFresh();
+        _enforceLeverage(sender, params.amountSpecified);
+        _enforcePositionSize(sender, params.amountSpecified);
+        _enforcePriceImpact(params.amountSpecified);
 
         // Settle funding for all users if interval passed
         if (block.timestamp >= lastFundingTime + fundingInterval) {
@@ -179,6 +201,7 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         lastTradeTimestamp[sender] = block.timestamp;
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
+
     function afterSwap(
         address sender,
         PoolKey calldata,
@@ -186,7 +209,6 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         BalanceDelta,
         bytes calldata
     ) external override nonReentrant returns (bytes4, int128) {
-        // Settle PnL and update funding
         _settlePnL(sender);
         _updateTWAP();
         return (IHooks.afterSwap.selector, 0);
@@ -213,39 +235,18 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     }
 
     // ========== INTERNAL HELPERS ==========
-    function _enforceCooldown(address user) internal view {
-        require(block.timestamp >= lastTradeTimestamp[user] + cooldownPeriod, "Cooldown active");
-    }
-    function _enforceMargin(address user) internal view {
-        require(vault.margin(user) >= minMargin, "Insufficient margin");
-    }
-    function _checkFlashLoan(address user) internal {
-        uint256 currentTime = block.timestamp;
-        uint256 lastTrade = lastTradeTimestamp[user];
-        if (currentTime == lastTrade) {
-            flashLoanProtection[user]++;
-            if (flashLoanProtection[user] > 3) {
-                emit FlashLoanDetected(user, currentTime);
-                revert("Flash loan detected");
-            }
-        } else {
-            flashLoanProtection[user] = 1;
-        }
-    }
-    function _updateTWAP() internal {
-        emit TWAPUpdated(_getCurrentTLI(), block.timestamp);
-    }
-    function _getCurrentTLI() internal view returns (uint256) {
-        return oracle.latestTLI();
-    }
-
+    /// @dev Settle funding for all users (demo: only sender, real: off-chain or event-driven)
     function _settleFundingAll() internal {
-        // In a real implementation, iterate over all users (off-chain or via events)
         // For demo, only settle for msg.sender (called in beforeSwap)
-        // Funding = (currentTLI - entryTLI) * fundingRate * positionSize
-        // This is a placeholder for actual funding logic
+        // Funding = (currentTLI - lastFundingTLI) * fundingRate * positionSize
+        // Funding rate is capped
+        int256 fundingRate = _calculateFundingRate();
+        globalFundingRate = fundingRate;
+        lastFundingTLI = _getCurrentTLI();
+        // In a real system, this would iterate over all users
     }
 
+    /// @dev Settle PnL and funding for a user
     function _settlePnL(address user) internal {
         if (userPosition[user] == 0 || isLiquidated[user]) return;
         uint256 exitTLI = _getCurrentTLI();
@@ -268,12 +269,14 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         userEntryTLI[user] = 0;
     }
 
+    /// @dev Liquidate a user if margin is too low
     function _liquidate(address user) internal {
         isLiquidated[user] = true;
         vault.slash(user, vault.margin(user));
         emit UserLiquidated(user, block.timestamp);
     }
 
+    /// @dev Check if a user is liquidatable
     function _isLiquidatable(address user) internal view returns (bool) {
         if (userPosition[user] == 0 || isLiquidated[user]) return false;
         uint256 margin = vault.margin(user);
@@ -281,5 +284,74 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
             _getCurrentTLI()) / 1e18;
         uint256 minMarginRequired = (notional * maintenanceMarginRatio) / 1e18;
         return margin < minMarginRequired;
+    }
+
+    /// @dev Enforce cooldown between trades
+    function _enforceCooldown(address user) internal view {
+        require(block.timestamp >= lastTradeTimestamp[user] + cooldownPeriod, "Cooldown active");
+    }
+    /// @dev Enforce minimum margin
+    function _enforceMargin(address user) internal view {
+        require(vault.margin(user) >= minMargin, "Insufficient margin");
+    }
+    /// @dev Enforce leverage limits
+    function _enforceLeverage(address user, int256 amount) internal view {
+        uint256 margin = vault.margin(user);
+        int256 newSize = userPosition[user] + amount;
+        uint256 notional = (uint256(newSize > 0 ? newSize : -newSize) * _getCurrentTLI()) / 1e18;
+        require(margin > 0, "Margin must be positive");
+        require((notional * 1e18) / margin <= maxLeverage, "Leverage too high");
+    }
+    /// @dev Enforce position size limits
+    function _enforcePositionSize(address user, int256 amount) internal view {
+        int256 newSize = userPosition[user] + amount;
+        require(uint256(newSize > 0 ? newSize : -newSize) <= maxPositionSize, "Position size too large");
+    }
+    /// @dev Enforce price impact (stub, real implementation would use pool state)
+    function _enforcePriceImpact(int256 /*amount*/) internal view {
+        // TODO: Implement real price impact check using pool state
+        // For now, assume always within limit
+    }
+    /// @dev Flash loan protection
+    function _checkFlashLoan(address user) internal {
+        uint256 currentTime = block.timestamp;
+        uint256 lastTrade = lastTradeTimestamp[user];
+        if (currentTime == lastTrade) {
+            flashLoanProtection[user]++;
+            if (flashLoanProtection[user] > 3) {
+                emit FlashLoanDetected(user, currentTime);
+                revert("Flash loan detected");
+            }
+        } else {
+            flashLoanProtection[user] = 1;
+        }
+    }
+    /// @dev Update TWAP (emit event for off-chain tracking)
+    function _updateTWAP() internal {
+        emit TWAPUpdated(_getCurrentTLI(), block.timestamp);
+    }
+    /// @dev Get current TLI from oracle, revert if stale or out of range
+    function _getCurrentTLI() internal view returns (uint256) {
+        uint256 tli = oracle.latestTLI();
+        require(tli >= minValidTLI && tli <= maxValidTLI, "TLI out of range");
+        return tli;
+    }
+    /// @dev Enforce oracle data is fresh
+    function _enforceOracleFresh() internal view {
+        uint256 lastUpdate = oracle.state().lastUpdate;
+        uint256 heartbeat = oracle.state().heartbeat;
+        if (block.timestamp > lastUpdate + heartbeat) {
+            emit OracleStale(lastUpdate, heartbeat);
+            revert("Oracle data is stale");
+        }
+    }
+    /// @dev Calculate funding rate (simple capped difference for demo)
+    function _calculateFundingRate() internal view returns (int256) {
+        uint256 tli = _getCurrentTLI();
+        int256 diff = int256(tli) - int256(lastFundingTLI);
+        int256 rate = (diff * 1e18) / int256(lastFundingTLI);
+        if (rate > int256(fundingRateCap)) return int256(fundingRateCap);
+        if (rate < -int256(fundingRateCap)) return -int256(fundingRateCap);
+        return rate;
     }
 }
