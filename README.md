@@ -25,9 +25,7 @@
 
 ## 1. Overview
 
-**Half-Life** is a DeFi protocol for betting on the "lifespan" of tokens, using a custom Token Lifespan Index (TLI) as the underlying.  
-Users can take **long** (betting on longevity) or **short** (betting on decay) positions on a token's TLI, with PnL and funding rates handled virtually.  
-The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uniswap v4 Hooks** for custom margin, funding, and settlement logic.
+**Half-Life** is a DeFi protocol for perpetual index betting on a custom Token Lifespan Index (TLI). Users can take **long** (betting on longevity) or **short** (betting on decay) positions on a token's TLI, with PnL and funding rates handled virtually. The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uniswap v4 Hooks** for all custom margin, funding, and settlement logic.
 
 ---
 
@@ -39,8 +37,7 @@ The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uni
 - **Frontend dApp**: UI for trading, margin management, and position monitoring.
 - **Margin Vault**: Holds user collateral (e.g., USDC), manages deposits, withdrawals, and margin accounting.
 - **Uniswap v4 Pool**: The trading venue for each token's TLI market.
-- **Uniswap v4 Hook**: Custom logic for margin checks, funding payments, and settlement, triggered on every trade.
-- **Perpetual Pool**: Core contract for virtual position management, PnL, and funding.
+- **Uniswap v4 Hook**: Enforces all protocol logic (margin, PnL, funding, liquidation) on every trade.
 - **Oracle Adapter**: Receives and stores the latest TLI value from a trusted off-chain oracle.
 - **Off-chain Index Engine**: Aggregates data, computes TLI, and pushes updates to the Oracle Adapter.
 
@@ -53,7 +50,7 @@ The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uni
 - Deposits collateral (e.g., USDC) into the Margin Vault.
 - Opens/closes long or short positions via the dApp.
 - Monitors positions, margin, and PnL.
-****
+
 ### 3.2. Frontend dApp
 
 - Provides UI for all user actions.
@@ -64,7 +61,7 @@ The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uni
 
 - Holds and tracks user collateral.
 - Handles deposits, withdrawals, and slashing (liquidations).
-- Only the Perpetual Pool can slash margin.
+- Only the Hook can slash margin for liquidations.
 
 ### 3.4. Uniswap v4 Pool
 
@@ -74,26 +71,21 @@ The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uni
 
 ### 3.5. Uniswap v4 Hook
 
-- Enforces custom logic on every trade:
+- **All protocol logic is enforced here:**
   - Checks user margin before allowing trade.
   - Triggers funding payments.
-  - Updates virtual positions in the Perpetual Pool.
+  - Calculates and settles PnL.
+  - Handles position opening, closing, and liquidation.
   - Can reject trades if margin is insufficient.
+  - Interacts with the Margin Vault for margin management.
 
-### 3.6. Perpetual Pool
-
-- Manages all user positions (virtual, not real token swaps).
-- Calculates PnL and funding payments.
-- Handles position opening, closing, and liquidation.
-- Interacts with the Margin Vault for margin management.
-
-### 3.7. Oracle Adapter
+### 3.6. Oracle Adapter
 
 - Stores the latest TLI value for each token.
 - Only updatable by a trusted oracle (e.g., Chainlink EA).
-- Provides TLI to the Perpetual Pool for PnL/funding calculations.
+- Provides TLI to the Hook for PnL/funding calculations.
 
-### 3.8. Off-chain Index Engine
+### 3.7. Off-chain Index Engine
 
 - Aggregates market, volume, social, and on-chain data.
 - Calculates the TLI using the geometric mean and custom weighting.
@@ -153,23 +145,16 @@ The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uni
 
 - ERC20-based vault for user collateral.
 - Handles deposits, withdrawals, and slashing.
-- Only the Perpetual Pool can slash margin for liquidations.
+- Only the Hook can slash margin for liquidations.
 
-### 5.3. HalfLifePerpetualPool
-
-- Manages all user positions (size, entry TLI, margin, last funding time).
-- Calculates PnL:
-  - **Long:** (Exit TLI - Entry TLI) \* Position Size
-  - **Short:** (Entry TLI - Exit TLI) \* Position Size
-- Calculates and applies funding payments.
-- Handles position opening, closing, and liquidation.
-- Interacts with the Margin Vault for margin management.
-
-### 5.4. HalfLifeUniswapV4Hook
+### 5.3. HalfLifeUniswapV4Hook
 
 - Implements Uniswap v4 hook interface.
-- On every trade, checks margin, triggers funding, and updates positions.
-- Can reject trades if margin is insufficient.
+- **All protocol logic is here:**
+  - On every trade, checks margin, triggers funding, settles PnL, and updates positions.
+  - Handles position opening, closing, and liquidation.
+  - Can reject trades if margin is insufficient.
+  - Interacts with the Margin Vault for margin management.
 
 ---
 
@@ -179,7 +164,8 @@ The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uni
 - **Custom Hook**: Registered with the pool, the hook is called on every swap, mint, or burn.
 - **Hook Logic**:
   - Checks if the user has enough margin in the Vault.
-  - Calls the Perpetual Pool to update positions and funding.
+  - Calculates and settles PnL and funding.
+  - Handles liquidations and margin slashing.
   - Can revert the transaction if checks fail.
 - **Benefits**:
   - Leverages Uniswap's liquidity and security.
@@ -212,11 +198,12 @@ The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uni
 ## 8. Security Considerations
 
 - **Reentrancy**: All external functions are protected with reentrancy guards.
-- **Access Control**: Only the trusted oracle can update TLI; only the Perpetual Pool can slash margin.
+- **Access Control**: Only the trusted oracle can update TLI; only the Hook can slash margin.
 - **Overflow/Underflow**: All math uses Solidity 0.8+ checked arithmetic.
 - **Oracle Manipulation**: Use multiple data sources, rate limits, and off-chain validation.
 - **Liquidation**: Only allowed if margin falls below maintenance; all actions are logged.
 - **Emergency Controls**: Admin can pause contracts or change oracle in emergencies.
+- **Interface Alignment**: All interfaces and implementations are kept in sync. Structs are accessed via explicit getter functions to ensure ABI compatibility and upgradability.
 
 ---
 
@@ -249,14 +236,33 @@ The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uni
 
 ## 11. Testing & Deployment
 
-- **Unit Tests**: For all contract functions, especially margin, funding, and liquidation logic.
-- **Integration Tests**: Simulate full user flows (deposit, open, funding, close, liquidation).
-- **Oracle Simulation**: Test with mock TLI updates and edge cases (stale data, manipulation attempts).
-- **Security Audits**: Mandatory before mainnet deployment.
-- **Deployment**:
-  - Deploy Margin Vault, Oracle Adapter, Perpetual Pool, and Hook.
-  - Register Hook with Uniswap v4 Pool.
-  - Set up Off-chain Index Engine and Oracle.
+### 11.1. Build
+
+- Install dependencies:
+  ```sh
+  pnpm install
+  ```
+- Build contracts:
+  ```sh
+  pnpm exec forge build
+  ```
+
+### 11.2. Test
+
+- Run all tests:
+  ```sh
+  pnpm exec forge test
+  ```
+
+### 11.3. Deploy
+
+- Update the deployment script (`script/Deploy.s.sol`) with the correct collateral token address for the Vault constructor (replace the placeholder `address(0x1234567890123456789012345678901234567890)`).
+- Deploy contracts:
+  ```sh
+  pnpm exec forge script script/Deploy.s.sol --rpc-url <YOUR_RPC_URL> --private-key <YOUR_PRIVATE_KEY> --broadcast
+  ```
+- The deployment script will deploy the Oracle Adapter, Margin Vault, and Uniswap v4 Hook, and print their addresses.
+- The Hook must be registered with the Uniswap v4 Pool for the TLI market.
 
 ---
 
@@ -304,49 +310,39 @@ The protocol leverages **Uniswap v4** for liquidity and order routing, and **Uni
 
 ## 14. Project Structure
 
-Below is a recommended project structure for a Foundry-based smart contract project for Half-Life:
+Below is the actual project structure for the smart contracts:
 
 ```
-/half-life-protocol
+/half-life-smartcontracts
 │
-├── contracts/                # All Solidity smart contracts
+├── src/                        # All Solidity smart contracts and interfaces
 │   ├── HalfLifeOracleAdapter.sol
 │   ├── HalfLifeMarginVault.sol
-│   ├── HalfLifePerpetualPool.sol
 │   ├── HalfLifeUniswapV4Hook.sol
-│   └── interfaces/           # Interface definitions
+│   └── interfaces/             # Interface definitions
 │
-├── scripts/                  # Deployment and utility scripts (in Solidity or JS/TS)
+├── script/                     # Foundry deployment scripts
 │   └── Deploy.s.sol
 │
-├── test/                     # Foundry test files (in Solidity)
-│   ├── HalfLifeOracleAdapter.t.sol
-│   ├── HalfLifeMarginVault.t.sol
-│   ├── HalfLifePerpetualPool.t.sol
-│   └── HalfLifeUniswapV4Hook.t.sol
+├── test/                       # Foundry test files (in Solidity)
 │
-├── lib/                      # External dependencies (e.g., OpenZeppelin, Uniswap v4)
+├── lib/                        # External dependencies (e.g., OpenZeppelin, Uniswap v4)
 │
-├── out/                      # Foundry build output (auto-generated)
+├── out/                        # Foundry build output (auto-generated)
 │
-├── script/                   # Foundry deployment scripts
+├── docs/                       # Documentation
 │
-├── docs/                     # Documentation
-│   └── README.md             # This documentation file
-│
-├── .env                      # Environment variables (private keys, RPC URLs, etc.)
-├── foundry.toml              # Foundry configuration
-├── package.json              # For JS/TS scripts (optional)
-├── pnpm-lock.yaml            # pnpm lockfile (if using JS/TS)
-└── README.md                 # Project overview
+├── .env                        # Environment variables (private keys, RPC URLs, etc.)
+├── foundry.toml                # Foundry configuration
+├── pnpm-lock.yaml              # pnpm lockfile
+└── README.md                   # This documentation file
 ```
 
 **Notes:**
-
-- All smart contracts go in `contracts/`.
+- All smart contracts go in `src/`.
 - All tests go in `test/` and should use Foundry's test framework.
 - Use `lib/` for external libraries (add via `forge install`).
-- Use `scripts/` and `script/` for deployment and utility scripts.
+- Use `script/` for deployment and utility scripts.
 - All documentation, including this file, goes in `docs/`.
 - Use `foundry.toml` for Foundry configuration.
 - Use `pnpm` for JS/TS package management if needed for off-chain scripts.
@@ -354,3 +350,7 @@ Below is a recommended project structure for a Foundry-based smart contract proj
 ---
 
 **For further details, see the contract files and test cases.**
+
+---
+
+© 2025 Half-Life Protocol. All rights reserved.
