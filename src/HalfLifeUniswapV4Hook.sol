@@ -21,15 +21,26 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     HalfLifeOracleAdapter public oracle;
 
     // Protocol-specific state
+    mapping(address => int256) public userPosition; // positive = long, negative = short
+    mapping(address => uint256) public userEntryTLI; // TLI at position entry
     mapping(address => uint256) public lastTradeTimestamp;
     mapping(address => uint256) public flashLoanProtection;
+    mapping(address => bool) public isLiquidated;
+
     uint256 public cooldownPeriod = 5 minutes;
     uint256 public minMargin = 100e18;
     uint256 public maxLeverage = 10e18;
     uint256 public maxPriceImpact = 0.05e18;
     uint256 public twapPeriod = 30 minutes;
+    uint256 public maintenanceMarginRatio = 0.1e18; // 10%
+    uint256 public fundingInterval = 1 hours;
+    uint256 public lastFundingTime;
+    uint256 public fundingRateCap = 0.01e18; // 1% per interval
 
     event UserLiquidated(address indexed user, uint256 timestamp);
+    event PositionOpened(address indexed user, int256 size, uint256 entryTLI);
+    event PositionClosed(address indexed user, int256 size, int256 pnl, uint256 exitTLI);
+    event FundingPaid(address indexed user, int256 fundingAmount);
     event RiskParametersUpdated(uint256 minMargin, uint256 maxLeverage, uint256 maxPriceImpact);
     event TWAPUpdated(uint256 newTWAP, uint256 timestamp);
     event FlashLoanDetected(address indexed user, uint256 timestamp);
@@ -37,6 +48,7 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     constructor(address _vault, address _oracle) Ownable(msg.sender) {
         vault = HalfLifeMarginVault(_vault);
         oracle = HalfLifeOracleAdapter(_oracle);
+        lastFundingTime = block.timestamp;
     }
 
     // ========== ADMIN FUNCTIONS ==========
@@ -136,8 +148,34 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         _enforceCooldown(sender);
         _enforceMargin(sender);
         _checkFlashLoan(sender);
-        // Funding logic, PnL, and liquidation can be added here
-        // ...
+        require(!isLiquidated[sender], "User is liquidated");
+
+        // Settle funding for all users if interval passed
+        if (block.timestamp >= lastFundingTime + fundingInterval) {
+            _settleFundingAll();
+            lastFundingTime = block.timestamp;
+        }
+
+        // If user has no open position, open new position
+        if (userPosition[sender] == 0) {
+            userPosition[sender] = int256(params.amountSpecified);
+            userEntryTLI[sender] = _getCurrentTLI();
+            emit PositionOpened(sender, int256(params.amountSpecified), userEntryTLI[sender]);
+        } else {
+            // If user has an open position, settle PnL and update position
+            _settlePnL(sender);
+            userPosition[sender] += int256(params.amountSpecified);
+            // If position is closed, reset entry TLI
+            if (userPosition[sender] == 0) {
+                userEntryTLI[sender] = 0;
+            }
+        }
+
+        // Liquidate if margin is too low after trade
+        if (_isLiquidatable(sender)) {
+            _liquidate(sender);
+        }
+
         lastTradeTimestamp[sender] = block.timestamp;
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
@@ -148,7 +186,8 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         BalanceDelta,
         bytes calldata
     ) external override nonReentrant returns (bytes4, int128) {
-        // Settle PnL, update funding, etc.
+        // Settle PnL and update funding
+        _settlePnL(sender);
         _updateTWAP();
         return (IHooks.afterSwap.selector, 0);
     }
@@ -198,5 +237,49 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     }
     function _getCurrentTLI() internal view returns (uint256) {
         return oracle.latestTLI();
+    }
+
+    function _settleFundingAll() internal {
+        // In a real implementation, iterate over all users (off-chain or via events)
+        // For demo, only settle for msg.sender (called in beforeSwap)
+        // Funding = (currentTLI - entryTLI) * fundingRate * positionSize
+        // This is a placeholder for actual funding logic
+    }
+
+    function _settlePnL(address user) internal {
+        if (userPosition[user] == 0 || isLiquidated[user]) return;
+        uint256 exitTLI = _getCurrentTLI();
+        int256 pnl = 0;
+        if (userPosition[user] > 0) {
+            // Long: (Exit TLI - Entry TLI) * Position Size
+            pnl = ((int256(exitTLI) - int256(userEntryTLI[user])) * userPosition[user]) / 1e18;
+        } else if (userPosition[user] < 0) {
+            // Short: (Entry TLI - Exit TLI) * |Position Size|
+            pnl = ((int256(userEntryTLI[user]) - int256(exitTLI)) * (-userPosition[user])) / 1e18;
+        }
+        // Apply PnL to margin vault (positive: add, negative: slash)
+        if (pnl > 0) {
+            vault.transfer(user, uint256(pnl));
+        } else if (pnl < 0) {
+            vault.slash(user, uint256(-pnl));
+        }
+        emit PositionClosed(user, userPosition[user], pnl, exitTLI);
+        userPosition[user] = 0;
+        userEntryTLI[user] = 0;
+    }
+
+    function _liquidate(address user) internal {
+        isLiquidated[user] = true;
+        vault.slash(user, vault.margin(user));
+        emit UserLiquidated(user, block.timestamp);
+    }
+
+    function _isLiquidatable(address user) internal view returns (bool) {
+        if (userPosition[user] == 0 || isLiquidated[user]) return false;
+        uint256 margin = vault.margin(user);
+        uint256 notional = (uint256(userPosition[user] > 0 ? userPosition[user] : -userPosition[user]) *
+            _getCurrentTLI()) / 1e18;
+        uint256 minMarginRequired = (notional * maintenanceMarginRatio) / 1e18;
+        return margin < minMarginRequired;
     }
 }
