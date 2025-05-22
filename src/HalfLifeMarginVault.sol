@@ -53,24 +53,6 @@ contract HalfLifeMarginVault is ReentrancyGuard, Ownable {
     mapping(address => CollateralConfig) public collateralConfigs;
     mapping(address => bool) public whitelistedTokens;
 
-    event Deposit(address indexed user, address indexed token, uint256 amount, uint256 fee);
-    event Withdraw(address indexed user, address indexed token, uint256 amount, uint256 fee);
-    event Slashed(address indexed user, uint256 amount);
-    event InsuranceFundUpdated(uint256 newAmount);
-    event UserBlacklisted(address indexed user);
-    event UserUnblacklisted(address indexed user);
-    event TokenWhitelisted(address indexed token);
-    event TokenUnwhitelisted(address indexed token);
-    event CollateralConfigUpdated(
-        address indexed token,
-        uint256 minDeposit,
-        uint256 maxDeposit,
-        uint256 depositFee,
-        uint256 withdrawalFee
-    );
-    event UtilizationRateUpdated(uint256 newRate);
-    event DynamicFeeUpdated(uint256 newMultiplier);
-
     modifier onlyPerpetualPool() {
         require(msg.sender == perpetualPool, "Not authorized");
         _;

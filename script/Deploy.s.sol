@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity 0.8.29;
 
 import "forge-std/Script.sol";
 import "../src/HalfLifeOracleAdapter.sol";
@@ -23,10 +23,7 @@ contract DeployScript is Script {
         console.log("Margin Vault deployed at:", address(vault));
 
         // Deploy Perpetual Pool
-        HalfLifePerpetualPool pool = new HalfLifePerpetualPool(
-            address(oracle),
-            address(vault)
-        );
+        HalfLifePerpetualPool pool = new HalfLifePerpetualPool(address(oracle), address(vault));
         console.log("Perpetual Pool deployed at:", address(pool));
 
         // Deploy Uniswap Hook

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.29;
 
 // Import the Uniswap v4 IHooks interface (update the import path as needed for your setup)
 import { IHooks } from "v4-core/interfaces/IHooks.sol";
@@ -53,13 +53,13 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     // --- Initialization Hooks ---
 
     /// @inheritdoc IHooks
-    function beforeInitialize(address, PoolKey calldata, uint160) external override returns (bytes4) {
+    function beforeInitialize(address, PoolKey calldata, uint160) external pure override returns (bytes4) {
         // No-op for this implementation, but must return selector
         return IHooks.beforeInitialize.selector;
     }
 
     /// @inheritdoc IHooks
-    function afterInitialize(address, PoolKey calldata, uint160, int24) external override returns (bytes4) {
+    function afterInitialize(address, PoolKey calldata, uint160, int24) external pure override returns (bytes4) {
         // No-op for this implementation, but must return selector
         return IHooks.afterInitialize.selector;
     }
@@ -224,7 +224,7 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         uint256, // amount0
         uint256, // amount1
         bytes calldata // hookData
-    ) external override returns (bytes4) {
+    ) external pure override returns (bytes4) {
         // No-op for this implementation, but must return selector
         return IHooks.beforeDonate.selector;
     }
@@ -236,7 +236,7 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
         uint256, // amount0
         uint256, // amount1
         bytes calldata // hookData
-    ) external override returns (bytes4) {
+    ) external pure override returns (bytes4) {
         // No-op for this implementation, but must return selector
         return IHooks.afterDonate.selector;
     }
@@ -289,7 +289,7 @@ contract HalfLifeUniswapV4Hook is IHooks, ReentrancyGuard, Ownable {
     }
 
     /// @dev Calculate price impact of a trade
-    function _calculatePriceImpact(uint256 currentPrice, int256 amount) internal view returns (uint256) {
+    function _calculatePriceImpact(uint256 currentPrice, int256 amount) internal pure returns (uint256) {
         if (amount == 0) return 0;
         uint256 absAmount = uint256(amount > 0 ? amount : -amount);
         // FIX: Prevent division by zero

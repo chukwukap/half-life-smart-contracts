@@ -38,13 +38,29 @@ interface IHalfLifeMarginVault {
         uint256 _withdrawalFee
     ) external;
 
-    // Events
+    // // Events
+    // event Deposit(address indexed user, address indexed token, uint256 amount, uint256 fee);
+    // event Withdraw(address indexed user, address indexed token, uint256 amount, uint256 fee);
+    // event Slashed(address indexed user, uint256 amount);
+    // event UserBlacklisted(address indexed user);
+    // event TokenWhitelisted(address indexed token);
+    // event RiskParametersUpdated(uint256 withdrawalCooldown, uint256 insuranceFundRatio, uint256 maxUtilizationRate);
+    // event CollateralConfigUpdated(
+    //     address indexed token,
+    //     uint256 minDeposit,
+    //     uint256 maxDeposit,
+    //     uint256 depositFee,
+    //     uint256 withdrawalFee
+    // );
+
     event Deposit(address indexed user, address indexed token, uint256 amount, uint256 fee);
     event Withdraw(address indexed user, address indexed token, uint256 amount, uint256 fee);
     event Slashed(address indexed user, uint256 amount);
+    event InsuranceFundUpdated(uint256 newAmount);
     event UserBlacklisted(address indexed user);
+    event UserUnblacklisted(address indexed user);
     event TokenWhitelisted(address indexed token);
-    event RiskParametersUpdated(uint256 withdrawalCooldown, uint256 insuranceFundRatio, uint256 maxUtilizationRate);
+    event TokenUnwhitelisted(address indexed token);
     event CollateralConfigUpdated(
         address indexed token,
         uint256 minDeposit,
@@ -52,4 +68,6 @@ interface IHalfLifeMarginVault {
         uint256 depositFee,
         uint256 withdrawalFee
     );
+    event UtilizationRateUpdated(uint256 newRate);
+    event DynamicFeeUpdated(uint256 newMultiplier);
 }
